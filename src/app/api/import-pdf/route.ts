@@ -22,79 +22,140 @@ type ExtraCosts = {
   discount: number;
 };
 
+type PdfToken = {
+  page: number;
+  x: number;
+  y: number;
+  text: string;
+};
+
 const sizes = ["36", "37", "38", "39", "40", "41", "42", "43", "44", "45"];
 
-function readPdfText(buffer: Buffer): Promise<string> {
+function cleanMoney(value: string) {
+  return Number(value.replace(/,/g, "").replace(/[^\d.-]/g, ""));
+}
+
+function normalize(value: string) {
+  return value
+    .replace(/%20/g, " ")
+    .replace(/US\s*\$/gi, "US$")
+    .replace(/USD/gi, "US$")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readPdfData(buffer: Buffer): Promise<{
+  text: string;
+  tokens: PdfToken[];
+}> {
   return new Promise((resolve, reject) => {
     const pdfParser = new PDFParser();
 
     pdfParser.on("pdfParser_dataError", (errData) => {
-      const error = errData instanceof Error ? errData : errData.parserError;
-      reject(error);
+      if (
+        typeof errData === "object" &&
+        errData !== null &&
+        "parserError" in errData
+      ) {
+        reject((errData as { parserError: Error }).parserError);
+      } else {
+        reject(errData);
+      }
     });
 
     pdfParser.on("pdfParser_dataReady", (pdfData) => {
       let text = "";
+      const tokens: PdfToken[] = [];
 
-      pdfData.Pages.forEach((page: any) => {
+      pdfData.Pages.forEach((page: any, pageIndex: number) => {
         page.Texts.forEach((textItem: any) => {
+          let part = "";
+
           textItem.R.forEach((r: any) => {
             try {
-              text += decodeURIComponent(r.T) + " ";
+              part += decodeURIComponent(r.T);
             } catch {
-              text += r.T + " ";
+              part += r.T;
             }
           });
 
-          text += "\n";
+          part = normalize(part);
+          if (!part) return;
+
+          text += part + " ";
+
+          tokens.push({
+            page: pageIndex,
+            x: Number(textItem.x || 0),
+            y: Number(textItem.y || 0),
+            text: part,
+          });
         });
       });
 
-      resolve(text);
+      resolve({
+        text: normalize(text),
+        tokens,
+      });
     });
 
     pdfParser.parseBuffer(buffer);
   });
 }
 
-function cleanMoney(value: string) {
-  return Number(value.replace(/,/g, "").replace(/[^\d.-]/g, ""));
-}
-
-function parseExtraCosts(text: string): ExtraCosts {
-  const normalized = text
-    .replace(/%20/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/US\s*\$/gi, "US$");
-
-  function findAmountAfter(label: string) {
-    const regex = new RegExp(
-      `${label}[\\s\\S]{0,300}?US\\$\\s*(-?[\\d,]+(?:\\.\\d{1,2})?)`,
-      "i"
-    );
-
-    const match = normalized.match(regex);
-
-    if (!match?.[1]) return 0;
-
-    return Math.abs(cleanMoney(match[1]));
+function parseExtraCosts(tokens: PdfToken[]): ExtraCosts {
+  function moneyValue(value: string) {
+    const match = value.match(/-?\s*US\$?\s*[\d,]+(?:\.\d{1,2})?/i);
+    return match?.[0] ? Math.abs(cleanMoney(match[0])) : 0;
   }
 
-  const shippingFee = findAmountAfter("Sea\\s*freight");
-  const insuranceFee = findAmountAfter("Insurance");
+  const rows = tokens
+    .reduce((groups: PdfToken[][], token) => {
+      const found = groups.find(
+        (group) =>
+          group[0].page === token.page &&
+          Math.abs(group[0].y - token.y) < 0.45
+      );
 
-  const discountMatch = normalized.match(
-    /Deduct\s+for\s+Samples[\s\S]{0,300}?-US\$?\s*([\d,]+(?:\.\d{1,2})?)/i
-  );
+      if (found) found.push(token);
+      else groups.push([token]);
 
-  const discount = discountMatch?.[1] ? cleanMoney(discountMatch[1]) : 0;
+      return groups;
+    }, [])
+    .map((group) =>
+      group
+        .sort((a, b) => a.x - b.x)
+        .map((t) => t.text)
+        .join(" ")
+    );
+
+  console.log("PDF ROWS:", rows);
+
+  function amountFromRow(labelRegex: RegExp) {
+    const row = rows.find((r) => labelRegex.test(r));
+
+    if (!row) {
+      console.log("NO ROW FOUND:", labelRegex);
+      return 0;
+    }
+
+    console.log("MATCHED ROW:", row);
+
+    const moneyMatches = [
+      ...row.matchAll(/-?\s*US\$?\s*[\d,]+(?:\.\d{1,2})?/gi),
+    ];
+
+    if (moneyMatches.length === 0) return 0;
+
+    return moneyValue(moneyMatches[moneyMatches.length - 1][0]);
+  }
 
   return {
-    shippingFee,
-    insuranceFee,
-    bankFee: 0,
-    otherFee: 0,
-    discount,
+    shippingFee: amountFromRow(/sea\s*freight|freight/i),
+    insuranceFee: amountFromRow(/insurance/i),
+    bankFee: amountFromRow(/bank\s*fee|bank\s*charge/i),
+    otherFee: amountFromRow(/other\s*fee|misc/i),
+    discount: amountFromRow(/deduct\s*for\s*samples|deduct/i),
   };
 }
 
@@ -148,7 +209,7 @@ function parseVendorPdfText(text: string): ImportedItem[] {
       const qty = row.qty[index];
 
       items.push({
-        id: `${row.productName}-${size}`,
+        id: `${row.productName}-${row.modelNo}-${size}`,
         productName: row.productName,
         modelNo: row.modelNo,
         size,
@@ -178,14 +239,17 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const text = await readPdfText(buffer);
-    const items = parseVendorPdfText(text);
-    const extraCosts = parseExtraCosts(text);
+    const { text, tokens } = await readPdfData(buffer);
 
+    const items = parseVendorPdfText(text);
+    const extraCosts = parseExtraCosts(tokens);
+
+    console.log("ITEMS FOUND:", items.length);
     console.log("EXTRA COSTS FOUND:", extraCosts);
 
     return NextResponse.json({
       text,
+      tokens,
       items,
       extraCosts,
     });

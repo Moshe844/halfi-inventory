@@ -238,45 +238,55 @@ export default function BillsPage() {
     alert("Payment saved.");
   }
 
-  function deleteBill(bill: Bill) {
-    const confirmDelete = window.confirm(
-      "Delete this bill? This will also delete all payments for this bill and update the PO balance/status."
+ function deleteBill(bill: Bill) {
+  const savedPayments = localStorage.getItem("halfi_payments_made");
+  const payments = savedPayments ? JSON.parse(savedPayments) : [];
+
+  const relatedPayments = payments.filter(
+    (payment: any) => payment.billId === bill.id
+  );
+
+  // BLOCK DELETE IF PAYMENTS EXIST
+  if (relatedPayments.length > 0) {
+    alert(
+      "Cannot delete this bill until all related payments are deleted first."
     );
-
-    if (!confirmDelete) return;
-
-    const savedPayments = localStorage.getItem("halfi_payments_made");
-    const payments = savedPayments ? JSON.parse(savedPayments) : [];
-
-    const updatedPayments = payments.filter(
-      (payment: any) => payment.billId !== bill.id
-    );
-
-    localStorage.setItem("halfi_payments_made", JSON.stringify(updatedPayments));
-
-    const updatedBills = bills.filter((b) => b.id !== bill.id);
-    saveBills(updatedBills);
-
-    const savedPOs = localStorage.getItem("halfi_purchase_orders");
-    const pos = savedPOs ? JSON.parse(savedPOs) : [];
-
-    const updatedPOs = pos.map((po: any) =>
-      po.id === bill.poId
-        ? {
-            ...po,
-            status: "Issued",
-            amountPaid: 0,
-            payments: [],
-          }
-        : po
-    );
-
-    localStorage.setItem("halfi_purchase_orders", JSON.stringify(updatedPOs));
-
-    setSelectedBill(null);
-
-    alert("Bill and related payments deleted. PO changed back to Issued.");
+    return;
   }
+
+  const confirmDelete = window.confirm(
+    "Delete this bill? The related purchase order will be reset back to Issued."
+  );
+
+  if (!confirmDelete) return;
+
+  const updatedBills = bills.filter((b) => b.id !== bill.id);
+
+  saveBills(updatedBills);
+
+  const savedPOs = localStorage.getItem("halfi_purchase_orders");
+  const pos = savedPOs ? JSON.parse(savedPOs) : [];
+
+  const updatedPOs = pos.map((po: any) =>
+    po.id === bill.poId
+      ? {
+          ...po,
+          status: "Issued",
+          amountPaid: 0,
+          payments: [],
+        }
+      : po
+  );
+
+  localStorage.setItem(
+    "halfi_purchase_orders",
+    JSON.stringify(updatedPOs)
+  );
+
+  setSelectedBill(null);
+
+  alert("Bill deleted.");
+}
 
   const totalBills = bills.length;
   const totalBillValue = bills.reduce(

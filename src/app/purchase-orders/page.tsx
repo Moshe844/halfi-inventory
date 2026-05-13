@@ -52,6 +52,15 @@ type PurchaseOrder = {
   items: POItem[];
 };
 
+type Vendor = {
+  id: string;
+  name: string;
+  email: string;
+  whatsapp: string;
+  address?: string;
+  contactName?: string;
+};
+
 const defaultExtraCosts: ExtraCosts = {
   shippingFee: 0,
   insuranceFee: 0,
@@ -72,8 +81,9 @@ function getOrderQty(order: PurchaseOrder) {
 
 function getItemSubtotal(items: POItem[]) {
   return items.reduce(
-    (sum, item) => sum + Number(item.quantity || 0) * Number(item.unitCost || 0),
-    0
+    (sum, item) =>
+      sum + Number(item.quantity || 0) * Number(item.unitCost || 0),
+    0,
   );
 }
 
@@ -122,9 +132,13 @@ export default function PurchaseOrdersPage() {
   const router = useRouter();
 
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(
+    null,
+  );
+  const [printOrder, setPrintOrder] = useState<PurchaseOrder | null>(null);
   const [mode, setMode] = useState<"menu" | "manual" | "bulk">("menu");
 
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendor, setVendor] = useState("Chongqing Langchi Shoes Co., Ltd.");
   const [vendorEmail, setVendorEmail] = useState("");
   const [vendorWhatsApp, setVendorWhatsApp] = useState("");
@@ -135,8 +149,10 @@ export default function PurchaseOrdersPage() {
   useEffect(() => {
     function loadOrders() {
       const saved = localStorage.getItem("halfi_purchase_orders");
+      const savedVendors = localStorage.getItem("halfi_vendors");
 
       try {
+        setVendors(savedVendors ? JSON.parse(savedVendors) : []);
         const parsedOrders = saved ? JSON.parse(saved) : [];
         setOrders(parsedOrders);
 
@@ -144,7 +160,7 @@ export default function PurchaseOrdersPage() {
 
         if (openPOId) {
           const foundPO = parsedOrders.find(
-            (po: PurchaseOrder) => po.id === openPOId
+            (po: PurchaseOrder) => po.id === openPOId,
           );
 
           if (foundPO) setSelectedOrder(foundPO);
@@ -175,7 +191,7 @@ export default function PurchaseOrdersPage() {
 
   function updateOrderStatus(id: string, status: PurchaseOrderStatus) {
     const updated = orders.map((order) =>
-      order.id === id ? { ...order, status } : order
+      order.id === id ? { ...order, status } : order,
     );
 
     saveOrders(updated);
@@ -197,6 +213,7 @@ export default function PurchaseOrdersPage() {
     });
 
     const data = await res.json();
+    console.log("PDF IMPORT DATA:", data);
     setLoading(false);
 
     if (!res.ok) {
@@ -251,8 +268,8 @@ export default function PurchaseOrdersPage() {
                   ? Number(value)
                   : value,
             }
-          : item
-      )
+          : item,
+      ),
     );
   }
 
@@ -292,7 +309,7 @@ export default function PurchaseOrdersPage() {
         (item) =>
           `${item.productName} | Model: ${item.modelNo || "-"} | Size: ${
             item.size
-          } | Qty: ${item.quantity} | Unit Cost: $${item.unitCost}`
+          } | Qty: ${item.quantity} | Unit Cost: $${item.unitCost}`,
       )
       .join("\n");
 
@@ -368,7 +385,7 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
         (oldItem: any) =>
           oldItem.productName === newItem.productName &&
           oldItem.modelNo === newItem.modelNo &&
-          oldItem.size === newItem.size
+          oldItem.size === newItem.size,
       );
 
       if (existingIndex >= 0) {
@@ -389,14 +406,46 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
     });
 
     localStorage.setItem("halfi_items", JSON.stringify(mergedInventory));
-    updateOrderStatus(order.id, "Received");
+    const savedReceived = localStorage.getItem("halfi_receive_inventory");
+const receivedRecords = savedReceived ? JSON.parse(savedReceived) : [];
+
+const alreadyReceived = receivedRecords.some(
+  (record: any) => record.poId === order.id
+);
+
+if (!alreadyReceived) {
+  const receiveRecord = {
+    id: `REC-${Date.now()}`,
+    poId: order.id,
+    vendor: order.vendor,
+    date: new Date().toLocaleDateString(),
+    totalQty: getOrderQty(order),
+    totalCost: getGrandTotal(order),
+    status: "Received",
+    items: order.items,
+  };
+
+  localStorage.setItem(
+    "halfi_receive_inventory",
+    JSON.stringify([receiveRecord, ...receivedRecords])
+  );
+}
+
+    const updatedOrders = orders.map((po) =>
+      po.id === order.id
+        ? { ...po, status: "Received" as PurchaseOrderStatus }
+        : po,
+    );
+
+    saveOrders(updatedOrders);
+    setSelectedOrder(null);
 
     alert("Purchase order received and added to inventory.");
   }
 
   function deletePurchaseOrder(order: PurchaseOrder) {
     const confirmDelete = window.confirm(
-      "Are you sure? This deletes the PO, related bill, related payments, and removes matching items from inventory."
+      "Are you sure? This deletes the PO, related bill, related payments, and removes matching items from inventory.",
     );
 
     if (!confirmDelete) return;
@@ -409,11 +458,12 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
         (poItem) =>
           inventoryItem.productName === poItem.productName &&
           inventoryItem.modelNo === poItem.modelNo &&
-          inventoryItem.size === poItem.size
+          inventoryItem.size === poItem.size,
       );
     });
 
     localStorage.setItem("halfi_items", JSON.stringify(updatedInventory));
+    
 
     const updatedOrders = orders.filter((po) => po.id !== order.id);
     saveOrders(updatedOrders);
@@ -426,11 +476,11 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
     const savedPayments = localStorage.getItem("halfi_payments_made");
     const payments = savedPayments ? JSON.parse(savedPayments) : [];
     const updatedPayments = payments.filter(
-      (payment: any) => payment.poId !== order.id
+      (payment: any) => payment.poId !== order.id,
     );
     localStorage.setItem(
       "halfi_payments_made",
-      JSON.stringify(updatedPayments)
+      JSON.stringify(updatedPayments),
     );
 
     if (selectedOrder?.id === order.id) setSelectedOrder(null);
@@ -441,16 +491,19 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
   const draftOrders = orders.filter((o) => o.status === "Draft").length;
   const issuedOrders = orders.filter((o) => o.status === "Issued").length;
   const partialOrders = orders.filter(
-    (o) => o.status === "Partially Paid"
+    (o) => o.status === "Partially Paid",
   ).length;
   const paidOrders = orders.filter((o) => o.status === "Paid").length;
   const receivedOrders = orders.filter((o) => o.status === "Received").length;
   const closedOrders = orders.filter((o) => o.status === "Closed").length;
 
-  const totalPOValue = orders.reduce((sum, order) => sum + getGrandTotal(order), 0);
+  const totalPOValue = orders.reduce(
+    (sum, order) => sum + getGrandTotal(order),
+    0,
+  );
   const totalPaid = orders.reduce(
     (sum, order) => sum + Number(order.amountPaid || 0),
-    0
+    0,
   );
   const totalOwed = totalPOValue - totalPaid;
 
@@ -573,11 +626,30 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
             <div className="grid gap-4 md:grid-cols-3">
               <div>
                 <label className="text-sm font-bold">Vendor</label>
-                <input
+                <select
                   value={vendor}
-                  onChange={(e) => setVendor(e.target.value)}
+                  onChange={(e) => {
+                    const selected = vendors.find(
+                      (v) => v.name === e.target.value,
+                    );
+
+                    setVendor(e.target.value);
+
+                    if (selected) {
+                      setVendorEmail(selected.email || "");
+                      setVendorWhatsApp(selected.whatsapp || "");
+                    }
+                  }}
                   className="mt-2 w-full rounded-xl border px-4 py-3"
-                />
+                >
+                  <option value="">Select vendor</option>
+
+                  {vendors.map((v) => (
+                    <option key={v.id} value={v.name}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -652,7 +724,11 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
                             <input
                               value={item.productName}
                               onChange={(e) =>
-                                updateLine(item.id, "productName", e.target.value)
+                                updateLine(
+                                  item.id,
+                                  "productName",
+                                  e.target.value,
+                                )
                               }
                               className="w-full rounded-lg border px-3 py-2"
                             />
@@ -845,7 +921,7 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
                     <div className="flex flex-wrap items-center gap-3">
                       <span
                         className={`rounded-full px-3 py-1 text-sm font-bold ${statusClass(
-                          order.status
+                          order.status,
                         )}`}
                       >
                         {order.status}
@@ -923,7 +999,9 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
               <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
                 <div className="rounded-2xl bg-zinc-100 p-4">
                   <p className="text-xs uppercase text-zinc-500">Date</p>
-                  <p className="mt-1 text-lg font-black">{selectedOrder.date}</p>
+                  <p className="mt-1 text-lg font-black">
+                    {selectedOrder.date}
+                  </p>
                 </div>
 
                 <div className="rounded-2xl bg-zinc-100 p-4">
@@ -933,7 +1011,7 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
                     onChange={(e) =>
                       updateOrderStatus(
                         selectedOrder.id,
-                        e.target.value as PurchaseOrderStatus
+                        e.target.value as PurchaseOrderStatus,
                       )
                     }
                     className="mt-2 w-full rounded-xl border bg-white px-3 py-2 font-bold"
@@ -969,15 +1047,38 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
                   <p className="mt-1 text-lg font-black">
                     $
                     {Number(
-                      getExtraCosts(selectedOrder).shippingFee || 0
+                      getExtraCosts(selectedOrder).shippingFee || 0,
                     ).toLocaleString()}
                   </p>
                 </div>
 
                 <div className="rounded-2xl bg-zinc-100 p-4">
-                  <p className="text-xs uppercase text-zinc-500">Other Fees</p>
+                  <p className="text-xs uppercase text-zinc-500">Insurance</p>
                   <p className="mt-1 text-lg font-black">
-                    ${getOtherFees(selectedOrder).toLocaleString()}
+                    $
+                    {Number(
+                      getExtraCosts(selectedOrder).insuranceFee || 0,
+                    ).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-zinc-100 p-4">
+                  <p className="text-xs uppercase text-zinc-500">Bank Fee</p>
+                  <p className="mt-1 text-lg font-black">
+                    $
+                    {Number(
+                      getExtraCosts(selectedOrder).bankFee || 0,
+                    ).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-zinc-100 p-4">
+                  <p className="text-xs uppercase text-zinc-500">Other Fee</p>
+                  <p className="mt-1 text-lg font-black">
+                    $
+                    {Number(
+                      getExtraCosts(selectedOrder).otherFee || 0,
+                    ).toLocaleString()}
                   </p>
                 </div>
 
@@ -986,7 +1087,7 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
                   <p className="mt-1 text-lg font-black">
                     $
                     {Number(
-                      getExtraCosts(selectedOrder).discount || 0
+                      getExtraCosts(selectedOrder).discount || 0,
                     ).toLocaleString()}
                   </p>
                 </div>
@@ -1040,10 +1141,43 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
 
                 <button
                   type="button"
-                  onClick={() => importToInventory(selectedOrder)}
-                  className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
+                  onClick={() => setPrintOrder(selectedOrder)}
+                  className="rounded-xl bg-zinc-900 px-5 py-3 font-bold text-white"
                 >
-                  Receive / Import to Inventory
+                  Print PO
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    getBalance(selectedOrder) > 0 ||
+                    selectedOrder.status === "Received"
+                  }
+                  onClick={() => {
+                    if (selectedOrder.status === "Received") {
+                      alert("Inventory already received for this PO.");
+                      return;
+                    }
+
+                    if (getBalance(selectedOrder) > 0) {
+                      alert(
+                        "PO must be fully paid before receiving inventory.",
+                      );
+                      return;
+                    }
+
+                    importToInventory(selectedOrder);
+                  }}
+                  className={`rounded-xl px-5 py-3 font-bold ${
+                    getBalance(selectedOrder) > 0 ||
+                    selectedOrder.status === "Received"
+                      ? "cursor-not-allowed bg-zinc-300 text-zinc-500"
+                      : "bg-black text-amber-300"
+                  }`}
+                >
+                  {selectedOrder.status === "Received"
+                    ? "Already Received"
+                    : "Receive / Import to Inventory"}
                 </button>
               </div>
 
@@ -1094,6 +1228,210 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
                         <td className="p-4 font-black">{item.quantity}</td>
                         <td className="p-4">${item.unitCost}</td>
                         <td className="p-4 font-bold">
+                          ${(item.quantity * item.unitCost).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {printOrder && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-6 print:bg-white print:p-0">
+            <style>{`
+              @media print {
+                body * { visibility: hidden; }
+                #po-print-area, #po-print-area * { visibility: visible; }
+                #po-print-area {
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  width: 100%;
+                  padding: 0;
+                  margin: 0;
+                }
+                .no-print { display: none !important; }
+                .print-page { box-shadow: none !important; border: none !important; }
+              }
+            `}</style>
+
+            <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-8 shadow-2xl">
+              <div className="mb-6 flex items-center justify-between no-print">
+                <h2 className="text-2xl font-black">Print Preview</h2>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
+                  >
+                    Print / Save PDF
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPrintOrder(null)}
+                    className="rounded-xl bg-zinc-100 px-5 py-3 font-bold"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div
+                id="po-print-area"
+                className="print-page rounded-3xl border bg-white p-8 shadow-sm"
+              >
+                <div className="mb-8 border-b pb-6">
+                  <p className="text-sm font-bold uppercase tracking-widest text-zinc-500">
+                    Purchase Order Summary
+                  </p>
+                  <h1 className="mt-2 text-4xl font-black">{printOrder.id}</h1>
+                  <p className="mt-2 text-lg text-zinc-600">
+                    {printOrder.vendor}
+                  </p>
+                  <p className="text-zinc-500">Date: {printOrder.date}</p>
+                </div>
+
+                <div className="mb-8 grid gap-4 md:grid-cols-4">
+                  <div className="rounded-2xl bg-zinc-100 p-4">
+                    <p className="text-xs uppercase text-zinc-500">Status</p>
+                    <p className="mt-1 text-xl font-black">
+                      {printOrder.status}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-zinc-100 p-4">
+                    <p className="text-xs uppercase text-zinc-500">Total Qty</p>
+                    <p className="mt-1 text-xl font-black">
+                      {getOrderQty(printOrder)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-zinc-100 p-4">
+                    <p className="text-xs uppercase text-zinc-500">
+                      Grand Total
+                    </p>
+                    <p className="mt-1 text-xl font-black">
+                      ${getGrandTotal(printOrder).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-zinc-100 p-4">
+                    <p className="text-xs uppercase text-zinc-500">Still Owe</p>
+                    <p className="mt-1 text-xl font-black">
+                      ${getBalance(printOrder).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                <h3 className="mb-3 text-xl font-black">Cost Summary</h3>
+
+                <div className="mb-8 grid gap-3 md:grid-cols-3">
+                  <div>
+                    Items Subtotal:{" "}
+                    <b>${getItemSubtotal(printOrder.items).toLocaleString()}</b>
+                  </div>
+                  <div>
+                    Shipping:{" "}
+                    <b>
+                      $
+                      {Number(
+                        getExtraCosts(printOrder).shippingFee || 0,
+                      ).toLocaleString()}
+                    </b>
+                  </div>
+                  <div>
+                    Insurance:{" "}
+                    <b>
+                      $
+                      {Number(
+                        getExtraCosts(printOrder).insuranceFee || 0,
+                      ).toLocaleString()}
+                    </b>
+                  </div>
+                  <div>
+                    Bank Fee:{" "}
+                    <b>
+                      $
+                      {Number(
+                        getExtraCosts(printOrder).bankFee || 0,
+                      ).toLocaleString()}
+                    </b>
+                  </div>
+                  <div>
+                    Other Fee:{" "}
+                    <b>
+                      $
+                      {Number(
+                        getExtraCosts(printOrder).otherFee || 0,
+                      ).toLocaleString()}
+                    </b>
+                  </div>
+                  <div>
+                    Discount:{" "}
+                    <b>
+                      $
+                      {Number(
+                        getExtraCosts(printOrder).discount || 0,
+                      ).toLocaleString()}
+                    </b>
+                  </div>
+                  <div>
+                    Amount Paid:{" "}
+                    <b>
+                      ${Number(printOrder.amountPaid || 0).toLocaleString()}
+                    </b>
+                  </div>
+                </div>
+
+                {(printOrder.payments || []).length > 0 && (
+                  <>
+                    <h3 className="mb-3 text-xl font-black">Payments</h3>
+                    <div className="mb-8 space-y-2">
+                      {printOrder.payments?.map((payment) => (
+                        <div
+                          key={payment.id}
+                          className="flex justify-between rounded-xl bg-zinc-100 p-3"
+                        >
+                          <span>
+                            {payment.date}
+                            {payment.method ? ` · ${payment.method}` : ""}
+                            {payment.note ? ` · ${payment.note}` : ""}
+                          </span>
+                          <b>${Number(payment.amount || 0).toLocaleString()}</b>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <h3 className="mb-3 text-xl font-black">Items</h3>
+
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-black text-white">
+                      <th className="p-3 text-left">Product</th>
+                      <th className="p-3 text-left">Model</th>
+                      <th className="p-3 text-left">Size</th>
+                      <th className="p-3 text-left">Qty</th>
+                      <th className="p-3 text-left">Unit Cost</th>
+                      <th className="p-3 text-left">Total</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {printOrder.items.map((item) => (
+                      <tr key={item.id} className="border-b">
+                        <td className="p-3 font-bold">{item.productName}</td>
+                        <td className="p-3">{item.modelNo}</td>
+                        <td className="p-3">{item.size}</td>
+                        <td className="p-3">{item.quantity}</td>
+                        <td className="p-3">${item.unitCost}</td>
+                        <td className="p-3 font-bold">
                           ${(item.quantity * item.unitCost).toLocaleString()}
                         </td>
                       </tr>
