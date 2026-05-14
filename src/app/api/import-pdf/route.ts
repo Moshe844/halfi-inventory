@@ -7,6 +7,7 @@ type ImportedItem = {
   id: string;
   productName: string;
   modelNo: string;
+  sku: string;
   size: string;
   pendingQty: number;
   inStockQty: number;
@@ -159,42 +160,81 @@ function parseExtraCosts(tokens: PdfToken[]): ExtraCosts {
   };
 }
 
+function getProductModelAndSku(productName: string, size: string) {
+  const key = productName.toLowerCase();
+
+  if (key.includes("loafer")) {
+    return {
+      modelNo: "LF100",
+      sku: `LF-BLK-${size}`,
+    };
+  }
+
+  if (key.includes("bike toe slip")) {
+    return {
+      modelNo: "BTS100",
+      sku: `BTS-BLK-${size}`,
+    };
+  }
+
+  if (key.includes("moc toe slip")) {
+    return {
+      modelNo: "MTS100",
+      sku: `MTS-BLK-${size}`,
+    };
+  }
+
+  if (key.includes("bike toe lace")) {
+    return {
+      modelNo: "BTL100",
+      sku: `BTL-BLK-${size}`,
+    };
+  }
+
+  if (key.includes("moc toe lace")) {
+    return {
+      modelNo: "MTL100",
+      sku: `MTL-BLK-${size}`,
+    };
+  }
+
+  return {
+    modelNo: "",
+    sku: "",
+  };
+}
+
 function parseVendorPdfText(text: string): ImportedItem[] {
   const compact = text.replace(/\s+/g, " ").toLowerCase();
 
   const rows = [
     {
-      productName: "Loafer",
+      productName: "Loafer Black",
       search: "loafer",
-      modelNo: "6L665-1-2",
       unitCost: 26.7,
       qty: [0, 0, 0, 10, 20, 20, 20, 10, 10, 10],
     },
     {
-      productName: "Bike Toe Slip In",
+      productName: "Bike Toe Slip-In Black",
       search: "bike toe slip in",
-      modelNo: "DL665-2",
       unitCost: 26.7,
       qty: [20, 20, 20, 40, 40, 40, 40, 30, 30, 20],
     },
     {
-      productName: "Moc Toe Slip In",
+      productName: "Moc Toe Slip-In Black",
       search: "moc toe slip in",
-      modelNo: "7L665-3",
       unitCost: 26.7,
       qty: [20, 20, 20, 40, 40, 40, 40, 30, 30, 20],
     },
     {
-      productName: "Bike Toe Lace",
+      productName: "Bike Toe Lace Black",
       search: "bike toe lace",
-      modelNo: "TBD",
       unitCost: 27,
       qty: [3, 3, 3, 8, 8, 8, 8, 3, 3, 3],
     },
     {
-      productName: "Moc Toe Lace",
+      productName: "Moc Toe Lace Black",
       search: "moc toe lace",
-      modelNo: "7L665-1",
       unitCost: 27,
       qty: [3, 3, 3, 8, 8, 8, 8, 3, 3, 3],
     },
@@ -207,11 +247,13 @@ function parseVendorPdfText(text: string): ImportedItem[] {
 
     sizes.forEach((size, index) => {
       const qty = row.qty[index];
+      const productInfo = getProductModelAndSku(row.productName, size);
 
       items.push({
-        id: `${row.productName}-${row.modelNo}-${size}`,
+        id: `${row.productName}-${productInfo.modelNo}-${size}`,
         productName: row.productName,
-        modelNo: row.modelNo,
+        modelNo: productInfo.modelNo,
+        sku: productInfo.sku,
         size,
         pendingQty: qty,
         inStockQty: qty,

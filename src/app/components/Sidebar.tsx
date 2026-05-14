@@ -1,3 +1,4 @@
+"use client";
 import Link from "next/link";
 import {
   BarChart3,
@@ -10,13 +11,14 @@ import {
   Warehouse,
 } from "lucide-react";
 
+
+
 const sections = [
   {
     title: "Inventory",
     icon: Boxes,
     links: [
       ["Inventory List", "/inventory"],
-      ["Add Item", "/inventory/add"],
       ["Adjust Inventory", "/inventory/adjust"],
       ["Transfers", "/inventory/transfers"],
     ],
@@ -35,6 +37,7 @@ const sections = [
     title: "Purchasing",
     icon: Truck,
     links: [
+      ["Add Item", "/add-items"],
       ["Purchase Orders", "/purchase-orders"],
       ["Receive Inventory", "/receive-inventory"],
       ["Bills", "/bills"],
@@ -76,6 +79,29 @@ const sections = [
     ],
   },
 ];
+
+function resetSystem() {
+  const confirmed = window.confirm(
+    "Are you sure? This will delete ALL inventory, purchase orders, bills, customers, vendors, payments, and sales orders."
+  );
+
+  if (!confirmed) return;
+
+  localStorage.removeItem("halfi_items");
+  localStorage.removeItem("halfi_purchase_orders");
+  localStorage.removeItem("halfi_receive_inventory");
+  localStorage.removeItem("halfi_bills");
+  localStorage.removeItem("halfi_payments_made");
+  localStorage.removeItem("halfi_sales_orders");
+  localStorage.removeItem("halfi_customers");
+  localStorage.removeItem("halfi_vendors");
+  localStorage.removeItem("halfi_invoices");
+  localStorage.removeItem("halfi_payments_received");
+
+  alert("System reset completed.");
+
+  window.location.reload();
+}
 
 export default function Sidebar() {
   return (
@@ -123,6 +149,13 @@ export default function Sidebar() {
           );
         })}
       </nav>
+      <button
+  type="button"
+  onClick={resetSystem}
+  className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white"
+>
+  Reset System
+</button>
     </aside>
   );
 }

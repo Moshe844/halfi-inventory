@@ -7,6 +7,7 @@ type POItem = {
   id: string;
   productName: string;
   modelNo: string;
+  sku?: string;
   size: string;
   quantity: number;
   unitCost: number;
@@ -67,6 +68,19 @@ function getGrandTotal(bill: { items: POItem[]; extraCosts?: ExtraCosts }) {
     Number(costs.otherFee || 0) -
     Number(costs.discount || 0)
   );
+}
+
+function formatMoney(value: number) {
+  return `$${Number(value || 0).toLocaleString()}`;
+}
+
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 export default function BillsPage() {
@@ -237,6 +251,386 @@ export default function BillsPage() {
 
     alert("Payment saved.");
   }
+
+
+  function printBillDocument(bill: Bill) {
+    const savedVendors = localStorage.getItem("halfi_vendors");
+    const vendors = savedVendors ? JSON.parse(savedVendors) : [];
+    const vendor = vendors.find((v: any) => v.name === bill.vendor);
+    const costs = getExtraCosts(bill);
+    const subtotal = getItemSubtotal(bill.items);
+    const total = getGrandTotal(bill);
+    const balance = total - Number(bill.amountPaid || 0);
+
+    const itemRows = bill.items
+      .map(
+        (item) => `
+          <tr>
+            <td><b>${escapeHtml(item.productName)}</b></td>
+            <td>${escapeHtml(item.modelNo || "")}</td>
+            <td>${escapeHtml(item.sku || "-")}</td>
+            <td>${escapeHtml(item.size || "")}</td>
+            <td class="right">${Number(item.quantity || 0)}</td>
+            <td class="right">${formatMoney(Number(item.unitCost || 0))}</td>
+            <td class="right"><b>${formatMoney(
+              Number(item.quantity || 0) * Number(item.unitCost || 0)
+            )}</b></td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const html = `
+      <html>
+        <head>
+          <title>${escapeHtml(bill.id)}</title>
+          <style>
+            @page {
+              size: letter;
+              margin: 0.45in;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: #e5e7eb;
+              color: #111;
+              font-family: Arial, sans-serif;
+            }
+
+            .toolbar {
+              position: sticky;
+              top: 0;
+              z-index: 10;
+              display: flex;
+              justify-content: center;
+              gap: 10px;
+              padding: 14px;
+              background: #e5e7eb;
+              border-bottom: 1px solid #d4d4d8;
+            }
+
+            .btn {
+              border: 0;
+              border-radius: 12px;
+              padding: 11px 18px;
+              font-weight: 800;
+              cursor: pointer;
+            }
+
+            .btn-primary {
+              background: #111;
+              color: #facc15;
+            }
+
+            .btn-secondary {
+              background: white;
+              color: #111;
+            }
+
+            .sheet {
+              width: 8in;
+              min-height: 10.2in;
+              margin: 22px auto;
+              padding: 0.42in;
+              background: white;
+              box-shadow: 0 18px 45px rgba(0, 0, 0, 0.22);
+            }
+
+            .header {
+              display: flex;
+              justify-content: space-between;
+              gap: 24px;
+              border-bottom: 4px solid #111;
+              padding-bottom: 18px;
+              margin-bottom: 22px;
+            }
+
+            .eyebrow {
+              font-size: 10px;
+              font-weight: 900;
+              letter-spacing: 3px;
+              color: #666;
+              text-transform: uppercase;
+            }
+
+            h1 {
+              font-size: 34px;
+              line-height: 1;
+              margin: 7px 0;
+            }
+
+            h2 {
+              margin: 0 0 10px;
+              font-size: 18px;
+            }
+
+            h3 {
+              margin: 22px 0 10px;
+              font-size: 18px;
+            }
+
+            .status {
+              background: #111;
+              color: white;
+              border-radius: 16px;
+              padding: 14px 18px;
+              text-align: right;
+              min-width: 145px;
+              height: fit-content;
+            }
+
+            .status strong {
+              display: block;
+              color: #facc15;
+              font-size: 22px;
+              margin-top: 4px;
+            }
+
+            .grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 14px;
+              margin-bottom: 22px;
+            }
+
+            .box {
+              background: #f4f4f5;
+              border-radius: 16px;
+              padding: 16px;
+              min-height: 115px;
+            }
+
+            .small {
+              font-size: 12px;
+              color: #444;
+              line-height: 1.55;
+            }
+
+            .summary {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 9px;
+              margin: 14px 0 22px;
+            }
+
+            .card {
+              border: 1px solid #ddd;
+              border-radius: 12px;
+              padding: 10px;
+              min-height: 58px;
+            }
+
+            .card .label {
+              color: #666;
+              font-size: 9px;
+              text-transform: uppercase;
+              font-weight: 800;
+            }
+
+            .card .value {
+              font-weight: 900;
+              font-size: 15px;
+              margin-top: 5px;
+            }
+
+            .total-card {
+              background: #111;
+              color: white;
+              grid-column: span 2;
+            }
+
+            .total-card .value {
+              color: #facc15;
+              font-size: 21px;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 10.5px;
+            }
+
+            th {
+              background: #111;
+              color: white;
+              text-align: left;
+              padding: 7px;
+              font-size: 9px;
+              text-transform: uppercase;
+            }
+
+            td {
+              border-bottom: 1px solid #ddd;
+              padding: 7px;
+            }
+
+            .right {
+              text-align: right;
+            }
+
+            .footer {
+              margin-top: 24px;
+              border-top: 1px solid #ddd;
+              padding-top: 10px;
+              color: #666;
+              font-size: 10px;
+            }
+
+            @media print {
+              html,
+              body {
+                background: white;
+              }
+
+              .toolbar {
+                display: none;
+              }
+
+              .sheet {
+                width: auto;
+                min-height: auto;
+                margin: 0;
+                padding: 0;
+                box-shadow: none;
+              }
+
+              .box,
+              .card,
+              tr {
+                break-inside: avoid;
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="window.print()">Print / Save PDF</button>
+            <button class="btn btn-secondary" onclick="window.close()">Close</button>
+          </div>
+
+          <div class="sheet">
+            <div class="header">
+              <div>
+                <div class="eyebrow">Vendor Bill</div>
+                <h1>${escapeHtml(bill.id)}</h1>
+                <div class="small">PO: ${escapeHtml(bill.poId)} · Date: ${escapeHtml(bill.date)}</div>
+              </div>
+
+              <div class="status">
+                <div class="eyebrow">Status</div>
+                <strong>${escapeHtml(bill.status)}</strong>
+              </div>
+            </div>
+
+            <div class="grid">
+              <div class="box">
+                <div class="eyebrow">Vendor</div>
+                <h2>${escapeHtml(bill.vendor)}</h2>
+                <div class="small">
+                  ${vendor?.contactName ? `<div><b>Contact:</b> ${escapeHtml(vendor.contactName)}</div>` : ""}
+                  ${vendor?.email ? `<div><b>Email:</b> ${escapeHtml(vendor.email)}</div>` : ""}
+                  ${vendor?.whatsapp ? `<div><b>WhatsApp:</b> ${escapeHtml(vendor.whatsapp)}</div>` : ""}
+                  ${vendor?.address ? `<div><b>Address:</b> ${escapeHtml(vendor.address)}</div>` : ""}
+                </div>
+              </div>
+
+              <div class="box">
+                <div class="eyebrow">Payment Summary</div>
+                <div class="summary" style="grid-template-columns: 1fr 1fr; margin-bottom: 0;">
+                  <div>
+                    <div class="small">Grand Total</div>
+                    <h2>${formatMoney(total)}</h2>
+                  </div>
+                  <div>
+                    <div class="small">Still Owe</div>
+                    <h2>${formatMoney(balance)}</h2>
+                  </div>
+                  <div>
+                    <div class="small">Amount Paid</div>
+                    <h2>${formatMoney(Number(bill.amountPaid || 0))}</h2>
+                  </div>
+                  <div>
+                    <div class="small">Items Subtotal</div>
+                    <h2>${formatMoney(subtotal)}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <h3>Cost Summary</h3>
+            <div class="summary">
+              <div class="card">
+                <div class="label">Items Subtotal</div>
+                <div class="value">${formatMoney(subtotal)}</div>
+              </div>
+              <div class="card">
+                <div class="label">Shipping</div>
+                <div class="value">${formatMoney(Number(costs.shippingFee || 0))}</div>
+              </div>
+              <div class="card">
+                <div class="label">Insurance</div>
+                <div class="value">${formatMoney(Number(costs.insuranceFee || 0))}</div>
+              </div>
+              <div class="card">
+                <div class="label">Discount</div>
+                <div class="value">${formatMoney(Number(costs.discount || 0))}</div>
+              </div>
+              <div class="card">
+                <div class="label">Bank Fee</div>
+                <div class="value">${formatMoney(Number(costs.bankFee || 0))}</div>
+              </div>
+              <div class="card">
+                <div class="label">Other Fee</div>
+                <div class="value">${formatMoney(Number(costs.otherFee || 0))}</div>
+              </div>
+              <div class="card total-card">
+                <div class="label">Grand Total</div>
+                <div class="value">${formatMoney(total)}</div>
+              </div>
+            </div>
+
+            <h3>Items</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Model</th>
+                  <th>SKU</th>
+                  <th>Size</th>
+                  <th class="right">Qty</th>
+                  <th class="right">Unit Cost</th>
+                  <th class="right">Total</th>
+                </tr>
+              </thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+
+            <div class="footer">
+              Generated by Halfi Inventory System · ${new Date().toLocaleString()}
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open("", "_blank");
+
+    if (!printWindow) {
+      alert("Popup blocked. Please allow popups to print.");
+      return;
+    }
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+
 
  function deleteBill(bill: Bill) {
   const savedPayments = localStorage.getItem("halfi_payments_made");
@@ -514,6 +908,14 @@ export default function BillsPage() {
 
                 <button
                   type="button"
+                  onClick={() => printBillDocument(selectedBill)}
+                  className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
+                >
+                  Print Bill
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => deleteBill(selectedBill)}
                   className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white"
                 >
@@ -527,6 +929,7 @@ export default function BillsPage() {
                     <tr>
                       <th className="p-4">Product</th>
                       <th className="p-4">Model</th>
+                      <th className="p-4">SKU</th>
                       <th className="p-4">Size</th>
                       <th className="p-4">Qty</th>
                       <th className="p-4">Unit Cost</th>
@@ -539,6 +942,7 @@ export default function BillsPage() {
                       <tr key={item.id} className="border-t">
                         <td className="p-4 font-bold">{item.productName}</td>
                         <td className="p-4">{item.modelNo}</td>
+                        <td className="p-4">{item.sku || "-"}</td>
                         <td className="p-4">{item.size}</td>
                         <td className="p-4">{item.quantity}</td>
                         <td className="p-4">${item.unitCost}</td>

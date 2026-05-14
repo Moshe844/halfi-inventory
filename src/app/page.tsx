@@ -40,13 +40,13 @@ function getQty(item: InventoryItem) {
   return Number(item.quantity ?? item.pendingQty ?? item.inStockQty ?? 0);
 }
 
+
 const sections = [
   {
     title: "Inventory",
     icon: Boxes,
     links: [
       ["Inventory List", "/inventory"],
-      ["Add Item", "/inventory/add"],
       ["Adjust Inventory", "/inventory/adjust"],
       ["Transfers", "/inventory/transfers"],
     ],
@@ -65,6 +65,7 @@ const sections = [
     title: "Purchasing",
     icon: Truck,
     links: [
+      ["Add Item", "/add-items"],
       ["Purchase Orders", "/purchase-orders"],
       ["Receive Inventory", "/receive-inventory"],
       ["Bills", "/bills"],

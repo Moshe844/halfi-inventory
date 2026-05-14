@@ -21,7 +21,9 @@ type Customer = {
   name: string;
   email?: string;
   phone?: string;
+  whatsapp?: string;
   address?: string;
+  notes?: string;
 };
 
 type SalesOrderItem = {
@@ -42,6 +44,7 @@ type SalesOrder = {
   customerName: string;
   customerEmail?: string;
   customerPhone?: string;
+  customerWhatsApp?: string;
   date: string;
   status: "Draft" | "Completed" | "Cancelled";
   items: SalesOrderItem[];
@@ -58,6 +61,19 @@ function getInventoryStatus(qty: number) {
   return "In Stock";
 }
 
+function formatMoney(value: number) {
+  return `$${Number(value || 0).toLocaleString()}`;
+}
+
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export default function SalesOrdersPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -66,12 +82,20 @@ export default function SalesOrdersPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerWhatsApp, setCustomerWhatsApp] = useState("");
 
   const [selectedInventoryId, setSelectedInventoryId] = useState("");
   const [qty, setQty] = useState(1);
   const [unitPrice, setUnitPrice] = useState("");
   const [cart, setCart] = useState<SalesOrderItem[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
+
+  const [showCustomerPopup, setShowCustomerPopup] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerEmail, setNewCustomerEmail] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerWhatsapp, setNewCustomerWhatsapp] = useState("");
+  const [newCustomerAddress, setNewCustomerAddress] = useState("");
 
   useEffect(() => {
     loadData();
@@ -136,7 +160,47 @@ export default function SalesOrdersPage() {
     if (found) {
       setCustomerEmail(found.email || "");
       setCustomerPhone(found.phone || "");
+      setCustomerWhatsApp(found.whatsapp || "");
+    } else {
+      setCustomerEmail("");
+      setCustomerPhone("");
+      setCustomerWhatsApp("");
     }
+  }
+
+  function createCustomerFromPopup() {
+    if (!newCustomerName.trim()) {
+      alert("Customer name is required.");
+      return;
+    }
+
+    const newCustomer: Customer = {
+      id: `CUS-${Date.now()}`,
+      name: newCustomerName,
+      email: newCustomerEmail,
+      phone: newCustomerPhone,
+      whatsapp: newCustomerWhatsapp,
+      address: newCustomerAddress,
+      notes: "",
+    };
+
+    const updatedCustomers = [newCustomer, ...customers];
+
+    setCustomers(updatedCustomers);
+    localStorage.setItem("halfi_customers", JSON.stringify(updatedCustomers));
+
+    setCustomerName(newCustomer.name);
+    setCustomerEmail(newCustomer.email || "");
+    setCustomerPhone(newCustomer.phone || "");
+    setCustomerWhatsApp(newCustomer.whatsapp || "");
+
+    setNewCustomerName("");
+    setNewCustomerEmail("");
+    setNewCustomerPhone("");
+    setNewCustomerWhatsapp("");
+    setNewCustomerAddress("");
+
+    setShowCustomerPopup(false);
   }
 
   function addItemToCart() {
@@ -158,7 +222,12 @@ export default function SalesOrdersPage() {
       return;
     }
 
-    const price = Number(unitPrice || selectedInventoryItem.sellingPrice || selectedInventoryItem.unitCost || 0);
+    const price = Number(
+      unitPrice ||
+        selectedInventoryItem.sellingPrice ||
+        selectedInventoryItem.unitCost ||
+        0
+    );
 
     if (price <= 0) {
       alert("Enter a valid selling price.");
@@ -170,7 +239,9 @@ export default function SalesOrdersPage() {
       .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
     if (existingCartQty + requestedQty > available) {
-      alert(`You already added ${existingCartQty}. Only ${available} available total.`);
+      alert(
+        `You already added ${existingCartQty}. Only ${available} available total.`
+      );
       return;
     }
 
@@ -245,6 +316,7 @@ export default function SalesOrdersPage() {
       customerName,
       customerEmail,
       customerPhone,
+      customerWhatsApp,
       date: new Date().toLocaleDateString(),
       status: "Completed",
       items: cart,
@@ -257,6 +329,7 @@ export default function SalesOrdersPage() {
     setCustomerName("");
     setCustomerEmail("");
     setCustomerPhone("");
+    setCustomerWhatsApp("");
     setCart([]);
     setSelectedInventoryId("");
     setQty(1);
@@ -299,6 +372,372 @@ export default function SalesOrdersPage() {
 
     alert("Sales order deleted and inventory restored.");
   }
+
+
+  function buildInvoiceMessage(order: SalesOrder) {
+    const lines = order.items
+      .map(
+        (item) =>
+          `${item.productName} | Model: ${item.modelNo || "-"} | SKU: ${
+            item.sku || "-"
+          } | Size: ${item.size || "-"} | Qty: ${
+            item.quantity
+          } | Unit Price: ${formatMoney(item.unitPrice)} | Total: ${formatMoney(
+            item.quantity * item.unitPrice
+          )}`
+      )
+      .join("\n");
+
+    return `Invoice ${order.id}
+
+Customer: ${order.customerName}
+Date: ${order.date}
+
+Items:
+${lines}
+
+Total: ${formatMoney(order.subtotal)}`;
+  }
+
+  function sendInvoiceEmail(order: SalesOrder) {
+    if (!order.customerEmail) {
+      alert("Customer email is missing.");
+      return;
+    }
+
+    const subject = encodeURIComponent(`Invoice ${order.id}`);
+    const body = encodeURIComponent(buildInvoiceMessage(order));
+
+    window.open(
+      `mailto:${order.customerEmail}?subject=${subject}&body=${body}`,
+      "_blank"
+    );
+  }
+
+  function sendInvoiceWhatsApp(order: SalesOrder) {
+    const phone = (order.customerWhatsApp || order.customerPhone || "").replace(
+      /\D/g,
+      ""
+    );
+    const message = encodeURIComponent(buildInvoiceMessage(order));
+    const url = phone
+      ? `https://wa.me/${phone}?text=${message}`
+      : `https://wa.me/?text=${message}`;
+
+    window.open(url, "_blank");
+  }
+
+  function printInvoice(order: SalesOrder) {
+    const itemRows = order.items
+      .map(
+        (item) => `
+          <tr>
+            <td><b>${escapeHtml(item.productName)}</b></td>
+            <td>${escapeHtml(item.modelNo || "-")}</td>
+            <td>${escapeHtml(item.sku || "-")}</td>
+            <td>${escapeHtml(item.size || "-")}</td>
+            <td class="right">${Number(item.quantity || 0)}</td>
+            <td class="right">${formatMoney(Number(item.unitPrice || 0))}</td>
+            <td class="right"><b>${formatMoney(
+              Number(item.quantity || 0) * Number(item.unitPrice || 0)
+            )}</b></td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const totalQty = order.items.reduce(
+      (sum, item) => sum + Number(item.quantity || 0),
+      0
+    );
+
+    const html = `
+      <html>
+        <head>
+          <title>${escapeHtml(order.id)}</title>
+          <style>
+            @page {
+              size: letter;
+              margin: 0.45in;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: #e5e7eb;
+              color: #111;
+              font-family: Arial, sans-serif;
+            }
+
+            .toolbar {
+              position: sticky;
+              top: 0;
+              z-index: 10;
+              display: flex;
+              justify-content: center;
+              gap: 10px;
+              padding: 14px;
+              background: #e5e7eb;
+              border-bottom: 1px solid #d4d4d8;
+            }
+
+            .btn {
+              border: 0;
+              border-radius: 12px;
+              padding: 11px 18px;
+              font-weight: 800;
+              cursor: pointer;
+            }
+
+            .btn-primary {
+              background: #111;
+              color: #facc15;
+            }
+
+            .btn-secondary {
+              background: white;
+              color: #111;
+            }
+
+            .sheet {
+              width: 8in;
+              min-height: 10.2in;
+              margin: 22px auto;
+              padding: 0.42in;
+              background: white;
+              box-shadow: 0 18px 45px rgba(0, 0, 0, 0.22);
+            }
+
+            .header {
+              display: flex;
+              justify-content: space-between;
+              gap: 24px;
+              border-bottom: 4px solid #111;
+              padding-bottom: 18px;
+              margin-bottom: 22px;
+            }
+
+            .eyebrow {
+              font-size: 10px;
+              font-weight: 900;
+              letter-spacing: 3px;
+              color: #666;
+              text-transform: uppercase;
+            }
+
+            h1 {
+              font-size: 34px;
+              line-height: 1;
+              margin: 7px 0;
+            }
+
+            h2 {
+              margin: 0 0 10px;
+              font-size: 18px;
+            }
+
+            h3 {
+              margin: 22px 0 10px;
+              font-size: 18px;
+            }
+
+            .total {
+              background: #111;
+              color: white;
+              border-radius: 16px;
+              padding: 14px 18px;
+              text-align: right;
+              min-width: 170px;
+              height: fit-content;
+            }
+
+            .total strong {
+              display: block;
+              color: #facc15;
+              font-size: 25px;
+              margin-top: 4px;
+            }
+
+            .grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 14px;
+              margin-bottom: 22px;
+            }
+
+            .box {
+              background: #f4f4f5;
+              border-radius: 16px;
+              padding: 16px;
+              min-height: 115px;
+            }
+
+            .small {
+              font-size: 12px;
+              color: #444;
+              line-height: 1.55;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 10.5px;
+            }
+
+            th {
+              background: #111;
+              color: white;
+              text-align: left;
+              padding: 7px;
+              font-size: 9px;
+              text-transform: uppercase;
+            }
+
+            td {
+              border-bottom: 1px solid #ddd;
+              padding: 7px;
+            }
+
+            .right {
+              text-align: right;
+            }
+
+            .amount-due {
+              margin-top: 24px;
+              margin-left: auto;
+              width: 250px;
+              background: #111;
+              color: white;
+              border-radius: 16px;
+              padding: 16px;
+            }
+
+            .amount-due strong {
+              color: #facc15;
+              font-size: 26px;
+              display: block;
+              margin-top: 4px;
+            }
+
+            .footer {
+              margin-top: 24px;
+              border-top: 1px solid #ddd;
+              padding-top: 10px;
+              color: #666;
+              font-size: 10px;
+            }
+
+            @media print {
+              html,
+              body {
+                background: white;
+              }
+
+              .toolbar {
+                display: none;
+              }
+
+              .sheet {
+                width: auto;
+                min-height: auto;
+                margin: 0;
+                padding: 0;
+                box-shadow: none;
+              }
+
+              .box,
+              tr,
+              .amount-due {
+                break-inside: avoid;
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="toolbar">
+            <button class="btn btn-primary" onclick="window.print()">Print / Save PDF</button>
+            <button class="btn btn-secondary" onclick="window.close()">Close</button>
+          </div>
+
+          <div class="sheet">
+            <div class="header">
+              <div>
+                <div class="eyebrow">Customer Invoice</div>
+                <h1>${escapeHtml(order.id)}</h1>
+                <div class="small">Date: ${escapeHtml(order.date)}</div>
+              </div>
+
+              <div class="total">
+                <div class="eyebrow">Amount Due</div>
+                <strong>${formatMoney(order.subtotal)}</strong>
+              </div>
+            </div>
+
+            <div class="grid">
+              <div class="box">
+                <div class="eyebrow">Bill To</div>
+                <h2>${escapeHtml(order.customerName)}</h2>
+                <div class="small">
+                  ${order.customerEmail ? `<div><b>Email:</b> ${escapeHtml(order.customerEmail)}</div>` : ""}
+                  ${order.customerPhone ? `<div><b>Phone:</b> ${escapeHtml(order.customerPhone)}</div>` : ""}
+                  ${order.customerWhatsApp ? `<div><b>WhatsApp:</b> ${escapeHtml(order.customerWhatsApp)}</div>` : ""}
+                </div>
+              </div>
+
+              <div class="box">
+                <div class="eyebrow">Summary</div>
+                <h2>${formatMoney(order.subtotal)}</h2>
+                <div class="small"><b>Status:</b> ${escapeHtml(order.status)}</div>
+                <div class="small"><b>Items Sold:</b> ${totalQty}</div>
+              </div>
+            </div>
+
+            <h3>Items</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Model</th>
+                  <th>SKU</th>
+                  <th>Size</th>
+                  <th class="right">Qty</th>
+                  <th class="right">Unit Price</th>
+                  <th class="right">Total</th>
+                </tr>
+              </thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+
+            <div class="amount-due">
+              <div class="eyebrow">Amount Due</div>
+              <strong>${formatMoney(order.subtotal)}</strong>
+            </div>
+
+            <div class="footer">
+              Generated by Halfi Inventory System · ${new Date().toLocaleString()}
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open("", "_blank");
+
+    if (!printWindow) {
+      alert("Popup blocked. Please allow popups to print.");
+      return;
+    }
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+
 
   const totalSales = orders.reduce(
     (sum, order) => sum + Number(order.subtotal || 0),
@@ -352,18 +791,31 @@ export default function SalesOrdersPage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <label className="text-sm font-bold">Customer</label>
-              <select
-                value={customerName}
-                onChange={(e) => selectCustomer(e.target.value)}
-                className="mt-2 w-full rounded-xl border px-4 py-3"
-              >
-                <option value="">Select customer</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.name}>
-                    {customer.name}
-                  </option>
-                ))}
-              </select>
+
+              <div className="mt-2 flex gap-2">
+                <select
+                  value={customerName}
+                  onChange={(e) => selectCustomer(e.target.value)}
+                  className="w-full rounded-xl border px-4 py-3"
+                >
+                  <option value="">Select customer</option>
+
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.name}>
+                      {customer.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerPopup(true)}
+                  className="rounded-xl bg-black px-4 py-3 text-xl font-black text-amber-300"
+                  title="Add customer"
+                >
+                  +
+                </button>
+              </div>
             </div>
 
             <div>
@@ -382,6 +834,16 @@ export default function SalesOrdersPage() {
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 placeholder="Phone number"
+                className="mt-2 w-full rounded-xl border px-4 py-3"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-bold">Customer WhatsApp</label>
+              <input
+                value={customerWhatsApp}
+                onChange={(e) => setCustomerWhatsApp(e.target.value)}
+                placeholder="WhatsApp number"
                 className="mt-2 w-full rounded-xl border px-4 py-3"
               />
             </div>
@@ -414,8 +876,8 @@ export default function SalesOrdersPage() {
 
                     return (
                       <option key={item.id} value={item.id}>
-                        {item.productName} | Model: {item.modelNo || "-"} | Size:{" "}
-                        {item.size || "-"} | Stock: {stock}
+                        {item.productName} | Model: {item.modelNo || "-"} |
+                        Size: {item.size || "-"} | Stock: {stock}
                       </option>
                     );
                   })}
@@ -427,7 +889,11 @@ export default function SalesOrdersPage() {
                 <input
                   type="number"
                   min="1"
-                  max={selectedInventoryItem ? getStockQty(selectedInventoryItem) : undefined}
+                  max={
+                    selectedInventoryItem
+                      ? getStockQty(selectedInventoryItem)
+                      : undefined
+                  }
                   value={qty}
                   onChange={(e) => setQty(Number(e.target.value))}
                   className="mt-2 w-full rounded-xl border bg-white px-4 py-3"
@@ -476,6 +942,7 @@ export default function SalesOrdersPage() {
                   <tr>
                     <th className="p-4">Product</th>
                     <th className="p-4">Model</th>
+                    <th className="p-4">SKU</th>
                     <th className="p-4">Size</th>
                     <th className="p-4">Qty</th>
                     <th className="p-4">Available Before Sale</th>
@@ -490,6 +957,7 @@ export default function SalesOrdersPage() {
                     <tr key={item.id} className="border-t">
                       <td className="p-4 font-bold">{item.productName}</td>
                       <td className="p-4">{item.modelNo || "-"}</td>
+                      <td className="p-4">{item.sku || "-"}</td>
                       <td className="p-4">{item.size || "-"}</td>
                       <td className="p-4 font-black">{item.quantity}</td>
                       <td className="p-4">{item.availableBeforeSale}</td>
@@ -522,7 +990,9 @@ export default function SalesOrdersPage() {
           <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-zinc-100 p-5">
             <div>
               <p className="text-sm text-zinc-500">Order Total</p>
-              <p className="text-3xl font-black">${cartSubtotal.toLocaleString()}</p>
+              <p className="text-3xl font-black">
+                ${cartSubtotal.toLocaleString()}
+              </p>
             </div>
 
             <button
@@ -620,6 +1090,30 @@ export default function SalesOrdersPage() {
               <div className="mb-6 flex flex-wrap gap-3">
                 <button
                   type="button"
+                  onClick={() => printInvoice(selectedOrder)}
+                  className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
+                >
+                  Print Invoice
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => sendInvoiceEmail(selectedOrder)}
+                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white"
+                >
+                  Email Invoice
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => sendInvoiceWhatsApp(selectedOrder)}
+                  className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white"
+                >
+                  WhatsApp Invoice
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => deleteSalesOrder(selectedOrder)}
                   className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white"
                 >
@@ -633,6 +1127,7 @@ export default function SalesOrdersPage() {
                     <tr>
                       <th className="p-4">Product</th>
                       <th className="p-4">Model</th>
+                      <th className="p-4">SKU</th>
                       <th className="p-4">Size</th>
                       <th className="p-4">Qty Sold</th>
                       <th className="p-4">Unit Price</th>
@@ -645,6 +1140,7 @@ export default function SalesOrdersPage() {
                       <tr key={item.id} className="border-t">
                         <td className="p-4 font-bold">{item.productName}</td>
                         <td className="p-4">{item.modelNo || "-"}</td>
+                        <td className="p-4">{item.sku || "-"}</td>
                         <td className="p-4">{item.size || "-"}</td>
                         <td className="p-4 font-black">{item.quantity}</td>
                         <td className="p-4">
@@ -661,6 +1157,84 @@ export default function SalesOrdersPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showCustomerPopup && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+            <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+              <div className="mb-6 flex items-start justify-between">
+                <div>
+                  <h2 className="text-3xl font-black">Create Customer</h2>
+                  <p className="mt-1 text-zinc-500">
+                    This customer will also be saved to the Customers page.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerPopup(false)}
+                  className="rounded-xl bg-zinc-100 px-4 py-2 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <input
+                  value={newCustomerName}
+                  onChange={(e) => setNewCustomerName(e.target.value)}
+                  placeholder="Customer name"
+                  className="rounded-xl border px-4 py-3"
+                />
+
+                <input
+                  value={newCustomerEmail}
+                  onChange={(e) => setNewCustomerEmail(e.target.value)}
+                  placeholder="Customer email"
+                  className="rounded-xl border px-4 py-3"
+                />
+
+                <input
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  placeholder="Phone"
+                  className="rounded-xl border px-4 py-3"
+                />
+
+                <input
+                  value={newCustomerWhatsapp}
+                  onChange={(e) => setNewCustomerWhatsapp(e.target.value)}
+                  placeholder="WhatsApp"
+                  className="rounded-xl border px-4 py-3"
+                />
+
+                <input
+                  value={newCustomerAddress}
+                  onChange={(e) => setNewCustomerAddress(e.target.value)}
+                  placeholder="Address"
+                  className="rounded-xl border px-4 py-3 md:col-span-2"
+                />
+              </div>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={createCustomerFromPopup}
+                  className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
+                >
+                  Save Customer
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerPopup(false)}
+                  className="rounded-xl border px-5 py-3 font-bold"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </div>
