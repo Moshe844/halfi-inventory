@@ -15,6 +15,7 @@ type Item = {
   pendingQty?: number;
   inStockQty?: number;
   unitCost?: number;
+  sellingPrice?: number;
   status?: string;
 };
 
@@ -59,6 +60,16 @@ export default function InventoryPage() {
     [items]
   );
 
+  const totalRetailValue = useMemo(
+    () =>
+      items.reduce(
+        (sum, item) =>
+          sum + getQty(item) * Number(item.sellingPrice ?? item.unitCost ?? 0),
+        0
+      ),
+    [items]
+  );
+
   function saveItems(updated: Item[]) {
     setItems(updated);
     localStorage.setItem("halfi_items", JSON.stringify(updated));
@@ -93,6 +104,19 @@ export default function InventoryPage() {
     saveItems(updated);
   }
 
+  function updateSellingPrice(id: string, sellingPrice: number) {
+    const updated = items.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            sellingPrice,
+          }
+        : item
+    );
+
+    saveItems(updated);
+  }
+
   function clearInventory() {
     localStorage.removeItem("halfi_items");
     setItems([]);
@@ -111,7 +135,7 @@ export default function InventoryPage() {
           </p>
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <div className="mb-6 grid gap-4 md:grid-cols-4">
           <div className="rounded-3xl bg-white p-6 shadow-sm">
             <p className="text-sm text-zinc-500">Total SKUs</p>
 
@@ -129,6 +153,14 @@ export default function InventoryPage() {
 
             <p className="mt-1 text-3xl font-bold">
               ${totalValue.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="rounded-3xl bg-white p-6 shadow-sm">
+            <p className="text-sm text-zinc-500">Inventory Retail Value</p>
+
+            <p className="mt-1 text-3xl font-bold">
+              ${totalRetailValue.toLocaleString()}
             </p>
           </div>
         </div>
@@ -161,7 +193,7 @@ export default function InventoryPage() {
             </div>
           ) : (
             <div className="overflow-x-auto rounded-2xl border">
-              <table className="w-full min-w-[1000px] text-left text-sm">
+              <table className="w-full min-w-[1150px] text-left text-sm">
                 <thead className="bg-zinc-100 text-xs uppercase text-zinc-500">
                   <tr>
                     <th className="p-4">Product</th>
@@ -170,7 +202,9 @@ export default function InventoryPage() {
                     <th className="p-4">Size</th>
                     <th className="p-4">Qty</th>
                     <th className="p-4">Unit Cost</th>
+                    <th className="p-4">Customer Price</th>
                     <th className="p-4">Total Cost</th>
+                    <th className="p-4">Retail Value</th>
                     <th className="p-4">Status</th>
                     <th className="p-4">Update Qty</th>
                   </tr>
@@ -182,6 +216,7 @@ export default function InventoryPage() {
                     const status = getStatus(qty);
                     const product = item.productName || item.style || "";
                     const cost = Number(item.unitCost ?? 0);
+                    const salePrice = Number(item.sellingPrice ?? item.unitCost ?? 0);
 
                     return (
                       <tr key={item.id} className="border-t">
@@ -219,8 +254,26 @@ export default function InventoryPage() {
 
                         <td className="p-4">${cost.toFixed(2)}</td>
 
+                        <td className="p-4">
+                          <input
+                            type="number"
+                            defaultValue={salePrice}
+                            onBlur={(e) =>
+                              updateSellingPrice(
+                                item.id,
+                                Number(e.target.value)
+                              )
+                            }
+                            className="w-24 rounded-xl border px-3 py-2"
+                          />
+                        </td>
+
                         <td className="p-4 font-semibold">
                           ${(qty * cost).toLocaleString()}
+                        </td>
+
+                        <td className="p-4 font-semibold">
+                          ${(qty * salePrice).toLocaleString()}
                         </td>
 
                         <td className="p-4">

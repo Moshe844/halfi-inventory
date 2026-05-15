@@ -12,6 +12,7 @@ type POItem = {
   size: string;
   quantity: number;
   unitCost: number;
+  sellingPrice?: number;
 };
 
 type ExtraCosts = {
@@ -29,6 +30,7 @@ type CatalogItem = {
   sku: string;
   size: string;
   unitCost?: number;
+  sellingPrice?: number;
 };
 
 type PaymentMethod = "Bank Transfer" | "Credit Card" | "Cash" | "Other";
@@ -143,15 +145,6 @@ function formatMoney(value: number) {
   return `$${Number(value || 0).toLocaleString()}`;
 }
 
-function escapeHtml(value: unknown) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 export default function PurchaseOrdersPage() {
   const router = useRouter();
 
@@ -187,16 +180,16 @@ export default function PurchaseOrdersPage() {
         const openPOId = localStorage.getItem("halfi_open_po_id");
 
         if (openPOId) {
-          const foundPO = parsedOrders.find(
-            (po: PurchaseOrder) => po.id === openPOId,
-          );
+  const foundPO = parsedOrders.find(
+    (po: PurchaseOrder) => po.id === openPOId,
+  );
 
-          if (foundPO) setSelectedOrder(foundPO);
+  if (foundPO) {
+    setSelectedOrder(foundPO);
+  }
 
-          localStorage.removeItem("halfi_open_po_id");
-        } else {
-          setSelectedOrder(null);
-        }
+  localStorage.removeItem("halfi_open_po_id");
+}
       } catch {
         setOrders([]);
       }
@@ -257,6 +250,7 @@ export default function PurchaseOrdersPage() {
       sku: item.sku || "",
       quantity: Number(item.pendingQty || item.quantity || 0),
       unitCost: Number(item.unitCost || 0),
+      sellingPrice: Number(item.sellingPrice || item.unitCost || 0),
     }));
 
     setItems(converted);
@@ -282,6 +276,7 @@ export default function PurchaseOrdersPage() {
         size: "",
         quantity: 0,
         unitCost: 0,
+        sellingPrice: 0,
       },
     ]);
   }
@@ -293,7 +288,9 @@ export default function PurchaseOrdersPage() {
           ? {
               ...item,
               [field]:
-                field === "quantity" || field === "unitCost"
+                field === "quantity" ||
+                field === "unitCost" ||
+                field === "sellingPrice"
                   ? Number(value)
                   : value,
             }
@@ -338,7 +335,7 @@ export default function PurchaseOrdersPage() {
         (item) =>
           `${item.productName} | Model: ${item.modelNo || "-"} | Size: ${
             item.size
-          } | Qty: ${item.quantity} | Unit Cost: $${item.unitCost}`,
+          } | Qty: ${item.quantity} | Unit Cost: $${item.unitCost} | Selling Price: $${Number(item.sellingPrice || item.unitCost || 0)}`,
       )
       .join("\n");
 
@@ -405,6 +402,7 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
       pendingQty: item.quantity,
       inStockQty: item.quantity,
       unitCost: item.unitCost,
+      sellingPrice: Number(item.sellingPrice || item.unitCost || 0),
       status: getInventoryStatus(item.quantity),
     }));
 
@@ -429,6 +427,12 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
           inStockQty: finalQty,
           sku: newItem.sku || mergedInventory[existingIndex].sku || "",
           unitCost: newItem.unitCost,
+          sellingPrice: Number(
+            newItem.sellingPrice ||
+              mergedInventory[existingIndex].sellingPrice ||
+              newItem.unitCost ||
+              0,
+          ),
           status: getInventoryStatus(finalQty),
         };
       } else {
@@ -551,418 +555,9 @@ if (!alreadyReceived) {
   const itemSubtotal = getItemSubtotal(items);
   const draftGrandTotal = getGrandTotal(draftOrder);
 
-  function printPurchaseOrder(order: PurchaseOrder) {
-    const vendorInfo = vendors.find((vendorItem) => vendorItem.name === order.vendor);
-    const costs = getExtraCosts(order);
-
-    const itemRows = order.items
-      .map(
-        (item) => `
-          <tr>
-            <td>${escapeHtml(item.productName)}</td>
-            <td>${escapeHtml(item.modelNo)}</td>
-            <td>${escapeHtml(item.sku || "-")}</td>
-            <td>${escapeHtml(item.size)}</td>
-            <td class="num">${Number(item.quantity || 0).toLocaleString()}</td>
-            <td class="num">${formatMoney(Number(item.unitCost || 0))}</td>
-            <td class="num strong">${formatMoney(
-              Number(item.quantity || 0) * Number(item.unitCost || 0)
-            )}</td>
-          </tr>
-        `
-      )
-      .join("");
-
-    const paymentRows = (order.payments || [])
-      .map(
-        (payment) => `
-          <tr>
-            <td>${escapeHtml(payment.date)}</td>
-            <td>${escapeHtml(payment.method || "-")}</td>
-            <td>${escapeHtml(payment.note || "-")}</td>
-            <td class="num strong">${formatMoney(Number(payment.amount || 0))}</td>
-          </tr>
-        `
-      )
-      .join("");
-
-    const html = `
-      <!doctype html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${escapeHtml(order.id)}</title>
-          <style>
-            @page {
-              size: letter;
-              margin: 0.45in;
-            }
-
-            * {
-              box-sizing: border-box;
-            }
-
-            body {
-              margin: 0;
-              font-family: Arial, Helvetica, sans-serif;
-              color: #111;
-              background: white;
-              font-size: 12px;
-              line-height: 1.35;
-            }
-
-            .page {
-              width: 100%;
-            }
-
-            .top {
-              display: flex;
-              justify-content: space-between;
-              gap: 24px;
-              border-bottom: 4px solid #111;
-              padding-bottom: 18px;
-              margin-bottom: 18px;
-            }
-
-            .kicker {
-              font-size: 10px;
-              letter-spacing: 3px;
-              text-transform: uppercase;
-              font-weight: 800;
-              color: #666;
-            }
-
-            h1 {
-              margin: 6px 0 0;
-              font-size: 30px;
-              line-height: 1;
-              letter-spacing: -1px;
-            }
-
-            .status-box {
-              min-width: 145px;
-              background: #111;
-              color: white;
-              border-radius: 14px;
-              padding: 14px;
-              text-align: right;
-            }
-
-            .status-box .status {
-              color: #facc15;
-              font-size: 22px;
-              font-weight: 900;
-            }
-
-            .grid-2 {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 14px;
-              margin-bottom: 18px;
-            }
-
-            .box {
-              border: 1px solid #ddd;
-              border-radius: 14px;
-              padding: 14px;
-              break-inside: avoid;
-            }
-
-            .box.gray {
-              background: #f5f5f5;
-              border-color: #f5f5f5;
-            }
-
-            .box-title {
-              font-size: 10px;
-              letter-spacing: 1.7px;
-              text-transform: uppercase;
-              font-weight: 900;
-              color: #666;
-              margin-bottom: 8px;
-            }
-
-            .vendor-name {
-              font-size: 20px;
-              font-weight: 900;
-              margin-bottom: 8px;
-            }
-
-            .summary-grid {
-              display: grid;
-              grid-template-columns: repeat(4, 1fr);
-              gap: 10px;
-              margin-bottom: 18px;
-            }
-
-            .summary-card {
-              border: 1px solid #ddd;
-              border-radius: 12px;
-              padding: 10px;
-              break-inside: avoid;
-            }
-
-            .summary-card.dark {
-              background: #111;
-              color: white;
-              border-color: #111;
-              grid-column: span 2;
-            }
-
-            .label {
-              font-size: 9px;
-              text-transform: uppercase;
-              letter-spacing: 1px;
-              color: #666;
-              font-weight: 800;
-              margin-bottom: 4px;
-            }
-
-            .dark .label {
-              color: #ccc;
-            }
-
-            .value {
-              font-size: 17px;
-              font-weight: 900;
-            }
-
-            .dark .value {
-              color: #facc15;
-              font-size: 22px;
-            }
-
-            h2 {
-              font-size: 18px;
-              margin: 18px 0 8px;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              table-layout: fixed;
-              font-size: 10.5px;
-            }
-
-            th {
-              background: #111;
-              color: white;
-              text-align: left;
-              padding: 8px 7px;
-              text-transform: uppercase;
-              font-size: 9px;
-              letter-spacing: 0.7px;
-            }
-
-            td {
-              border-bottom: 1px solid #ddd;
-              padding: 7px;
-              vertical-align: top;
-              word-break: break-word;
-            }
-
-            .num {
-              text-align: right;
-              white-space: nowrap;
-            }
-
-            .strong {
-              font-weight: 900;
-            }
-
-            .footer {
-              margin-top: 18px;
-              padding-top: 10px;
-              border-top: 1px solid #ddd;
-              font-size: 10px;
-              color: #777;
-            }
-
-            .no-payments {
-              color: #666;
-              font-style: italic;
-            }
-
-            @media print {
-              body {
-                print-color-adjust: exact;
-                -webkit-print-color-adjust: exact;
-              }
-
-              .box,
-              .summary-card,
-              .top {
-                break-inside: avoid;
-              }
-
-              tr {
-                break-inside: avoid;
-              }
-            }
-          </style>
-        </head>
-
-        <body>
-          <div class="page">
-            <div class="top">
-              <div>
-                <div class="kicker">Purchase Order</div>
-                <h1>${escapeHtml(order.id)}</h1>
-                <div style="margin-top: 8px; color: #555;">
-                  Date: ${escapeHtml(order.date)}
-                </div>
-              </div>
-
-              <div class="status-box">
-                <div class="kicker" style="color:#ccc;">Status</div>
-                <div class="status">${escapeHtml(order.status)}</div>
-              </div>
-            </div>
-
-            <div class="grid-2">
-              <div class="box gray">
-                <div class="box-title">Vendor</div>
-                <div class="vendor-name">${escapeHtml(order.vendor)}</div>
-                ${
-                  vendorInfo?.contactName
-                    ? `<div><b>Contact:</b> ${escapeHtml(vendorInfo.contactName)}</div>`
-                    : ""
-                }
-                ${
-                  vendorInfo?.email || order.vendorEmail
-                    ? `<div><b>Email:</b> ${escapeHtml(vendorInfo?.email || order.vendorEmail)}</div>`
-                    : ""
-                }
-                ${
-                  vendorInfo?.whatsapp || order.vendorWhatsApp
-                    ? `<div><b>WhatsApp:</b> ${escapeHtml(vendorInfo?.whatsapp || order.vendorWhatsApp)}</div>`
-                    : ""
-                }
-                ${
-                  vendorInfo?.address
-                    ? `<div><b>Address:</b> ${escapeHtml(vendorInfo.address)}</div>`
-                    : ""
-                }
-              </div>
-
-              <div class="box gray">
-                <div class="box-title">Payment Summary</div>
-                <div class="summary-grid" style="grid-template-columns: 1fr 1fr; margin: 0;">
-                  <div>
-                    <div class="label">Grand Total</div>
-                    <div class="value">${formatMoney(getGrandTotal(order))}</div>
-                  </div>
-                  <div>
-                    <div class="label">Still Owe</div>
-                    <div class="value">${formatMoney(getBalance(order))}</div>
-                  </div>
-                  <div>
-                    <div class="label">Amount Paid</div>
-                    <div class="value">${formatMoney(Number(order.amountPaid || 0))}</div>
-                  </div>
-                  <div>
-                    <div class="label">Total Qty</div>
-                    <div class="value">${getOrderQty(order).toLocaleString()}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <h2>Cost Summary</h2>
-            <div class="summary-grid">
-              <div class="summary-card">
-                <div class="label">Items Subtotal</div>
-                <div class="value">${formatMoney(getItemSubtotal(order.items))}</div>
-              </div>
-              <div class="summary-card">
-                <div class="label">Shipping</div>
-                <div class="value">${formatMoney(Number(costs.shippingFee || 0))}</div>
-              </div>
-              <div class="summary-card">
-                <div class="label">Insurance</div>
-                <div class="value">${formatMoney(Number(costs.insuranceFee || 0))}</div>
-              </div>
-              <div class="summary-card">
-                <div class="label">Discount</div>
-                <div class="value">${formatMoney(Number(costs.discount || 0))}</div>
-              </div>
-              <div class="summary-card">
-                <div class="label">Bank Fee</div>
-                <div class="value">${formatMoney(Number(costs.bankFee || 0))}</div>
-              </div>
-              <div class="summary-card">
-                <div class="label">Other Fee</div>
-                <div class="value">${formatMoney(Number(costs.otherFee || 0))}</div>
-              </div>
-              <div class="summary-card dark">
-                <div class="label">Grand Total</div>
-                <div class="value">${formatMoney(getGrandTotal(order))}</div>
-              </div>
-            </div>
-
-            ${
-              (order.payments || []).length > 0
-                ? `
-                  <h2>Payments</h2>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Method</th>
-                        <th>Note</th>
-                        <th class="num">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>${paymentRows}</tbody>
-                  </table>
-                `
-                : `<p class="no-payments">No payments recorded.</p>`
-            }
-
-            <h2>Items</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 26%;">Product</th>
-                  <th style="width: 14%;">Model</th>
-                  <th style="width: 18%;">SKU</th>
-                  <th style="width: 8%;">Size</th>
-                  <th style="width: 8%;" class="num">Qty</th>
-                  <th style="width: 13%;" class="num">Unit Cost</th>
-                  <th style="width: 13%;" class="num">Total</th>
-                </tr>
-              </thead>
-              <tbody>${itemRows}</tbody>
-            </table>
-
-            <div class="footer">
-              Generated by Halfi Inventory System · ${new Date().toLocaleString()}
-            </div>
-          </div>
-
-          <script>
-            window.onload = function () {
-              setTimeout(function () {
-                window.focus();
-                window.print();
-              }, 250);
-            };
-          </script>
-        </body>
-      </html>
-    `;
-
-    const printWindow = window.open("", "_blank", "width=1100,height=800");
-
-    if (!printWindow) {
-      alert("Popup blocked. Please allow popups to print this purchase order.");
-      return;
-    }
-
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-  }
+  const printVendor = printOrder
+    ? vendors.find((vendorItem) => vendorItem.name === printOrder.vendor)
+    : null;
 
   return (
     <main className="min-h-screen bg-zinc-100 p-6">
@@ -1158,6 +753,7 @@ if (!alreadyReceived) {
                         <th className="p-4">SKU</th>
                         <th className="p-3">Qty</th>
                         <th className="p-3">Unit Cost</th>
+                        <th className="p-3">Selling Price</th>
                         <th className="p-3">Total</th>
                       </tr>
                     </thead>
@@ -1189,6 +785,12 @@ if (!alreadyReceived) {
                                           unitCost: Number(
                                             selected.unitCost ||
                                               line.unitCost ||
+                                              0,
+                                          ),
+                                          sellingPrice: Number(
+                                            selected.sellingPrice ||
+                                              line.sellingPrice ||
+                                              selected.unitCost ||
                                               0,
                                           ),
                                         }
@@ -1259,6 +861,17 @@ if (!alreadyReceived) {
                               value={item.unitCost}
                               onChange={(e) =>
                                 updateLine(item.id, "unitCost", e.target.value)
+                              }
+                              className="w-28 rounded-lg border px-3 py-2"
+                            />
+                          </td>
+
+                          <td className="p-3">
+                            <input
+                              type="number"
+                              value={item.sellingPrice || ""}
+                              onChange={(e) =>
+                                updateLine(item.id, "sellingPrice", e.target.value)
                               }
                               className="w-28 rounded-lg border px-3 py-2"
                             />
@@ -1629,7 +1242,7 @@ if (!alreadyReceived) {
 
                 <button
                   type="button"
-                  onClick={() => printPurchaseOrder(selectedOrder)}
+                  onClick={() => setPrintOrder(selectedOrder)}
                   className="rounded-xl bg-zinc-900 px-5 py-3 font-bold text-white"
                 >
                   Print PO
@@ -1704,6 +1317,7 @@ if (!alreadyReceived) {
                        <th className="p-4">SKU</th>
                       <th className="p-4">Qty</th>
                       <th className="p-4">Unit Cost</th>
+                      <th className="p-4">Selling Price</th>
                       <th className="p-4">Total</th>
                     </tr>
                   </thead>
@@ -1717,6 +1331,7 @@ if (!alreadyReceived) {
                         <td className="p-4">{item.sku || "-"}</td>
                         <td className="p-4 font-black">{item.quantity}</td>
                         <td className="p-4">${item.unitCost}</td>
+                        <td className="p-4">${item.sellingPrice || item.unitCost || 0}</td>
                         <td className="p-4 font-bold">
                           ${(item.quantity * item.unitCost).toLocaleString()}
                         </td>
@@ -1724,6 +1339,346 @@ if (!alreadyReceived) {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {printOrder && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-6 print:block print:bg-white print:p-0">
+            <style>{`
+              @page {
+                size: letter;
+                margin: 0.35in;
+              }
+
+              @media print {
+                body * {
+                  visibility: hidden;
+                }
+
+                #po-print-area,
+                #po-print-area * {
+                  visibility: visible;
+                }
+
+                #po-print-area {
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  width: 100%;
+                  margin: 0;
+                  padding: 0;
+                }
+
+                .no-print {
+                  display: none !important;
+                }
+
+                .print-wrapper {
+                  max-height: none !important;
+                  overflow: visible !important;
+                  box-shadow: none !important;
+                  border-radius: 0 !important;
+                  padding: 0 !important;
+                }
+
+                .print-card {
+                  box-shadow: none !important;
+                  border: none !important;
+                  padding: 0 !important;
+                }
+
+                .avoid-break {
+                  break-inside: avoid;
+                  page-break-inside: avoid;
+                }
+
+                table {
+                  page-break-inside: auto;
+                }
+
+                tr {
+                  page-break-inside: avoid;
+                  page-break-after: auto;
+                }
+              }
+            `}</style>
+
+            <div className="print-wrapper max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+              <div className="no-print mb-5 flex items-center justify-between">
+                <h2 className="text-2xl font-black">Print Preview</h2>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
+                  >
+                    Print / Save PDF
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPrintOrder(null)}
+                    className="rounded-xl bg-zinc-100 px-5 py-3 font-bold"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div
+                id="po-print-area"
+                className="print-card rounded-3xl border bg-white p-8 shadow-sm"
+              >
+                <div className="avoid-break mb-8 flex items-start justify-between gap-8 border-b-4 border-black pb-6">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.3em] text-zinc-500">
+                      Purchase Order
+                    </p>
+                    <h1 className="mt-2 text-5xl font-black tracking-tight">
+                      {printOrder.id}
+                    </h1>
+                    <p className="mt-2 text-sm text-zinc-500">
+                      Created: {printOrder.date}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-black px-6 py-4 text-right text-white">
+                    <p className="text-xs uppercase tracking-widest text-zinc-300">
+                      Status
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-amber-300">
+                      {printOrder.status}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="avoid-break mb-8 grid gap-5 md:grid-cols-2">
+                  <div className="rounded-3xl bg-zinc-100 p-5">
+                    <p className="mb-3 text-xs font-black uppercase tracking-widest text-zinc-500">
+                      Vendor
+                    </p>
+                    <h2 className="text-2xl font-black">{printOrder.vendor}</h2>
+
+                    <div className="mt-4 space-y-1 text-sm text-zinc-700">
+                      {printVendor?.contactName && (
+                        <p>
+                          <b>Contact:</b> {printVendor.contactName}
+                        </p>
+                      )}
+
+                      {(printVendor?.email || printOrder.vendorEmail) && (
+                        <p>
+                          <b>Email:</b>{" "}
+                          {printVendor?.email || printOrder.vendorEmail}
+                        </p>
+                      )}
+
+                      {(printVendor?.whatsapp || printOrder.vendorWhatsApp) && (
+                        <p>
+                          <b>WhatsApp:</b>{" "}
+                          {printVendor?.whatsapp || printOrder.vendorWhatsApp}
+                        </p>
+                      )}
+
+                      {printVendor?.address && (
+                        <p>
+                          <b>Address:</b> {printVendor.address}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl bg-zinc-100 p-5">
+                    <p className="mb-3 text-xs font-black uppercase tracking-widest text-zinc-500">
+                      Payment Summary
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-zinc-500">Grand Total</p>
+                        <p className="text-2xl font-black">
+                          {formatMoney(getGrandTotal(printOrder))}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-zinc-500">Still Owe</p>
+                        <p className="text-2xl font-black">
+                          {formatMoney(getBalance(printOrder))}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-zinc-500">Amount Paid</p>
+                        <p className="text-xl font-black">
+                          {formatMoney(Number(printOrder.amountPaid || 0))}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-zinc-500">Total Qty</p>
+                        <p className="text-xl font-black">
+                          {getOrderQty(printOrder)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="avoid-break mb-8">
+                  <h3 className="mb-3 text-xl font-black">Cost Summary</h3>
+
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div className="rounded-2xl border p-4">
+                      <p className="text-xs uppercase text-zinc-500">
+                        Items Subtotal
+                      </p>
+                      <p className="mt-1 text-lg font-black">
+                        {formatMoney(getItemSubtotal(printOrder.items))}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border p-4">
+                      <p className="text-xs uppercase text-zinc-500">Shipping</p>
+                      <p className="mt-1 text-lg font-black">
+                        {formatMoney(
+                          Number(getExtraCosts(printOrder).shippingFee || 0),
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border p-4">
+                      <p className="text-xs uppercase text-zinc-500">
+                        Insurance
+                      </p>
+                      <p className="mt-1 text-lg font-black">
+                        {formatMoney(
+                          Number(getExtraCosts(printOrder).insuranceFee || 0),
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border p-4">
+                      <p className="text-xs uppercase text-zinc-500">Discount</p>
+                      <p className="mt-1 text-lg font-black">
+                        {formatMoney(
+                          Number(getExtraCosts(printOrder).discount || 0),
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border p-4">
+                      <p className="text-xs uppercase text-zinc-500">Bank Fee</p>
+                      <p className="mt-1 text-lg font-black">
+                        {formatMoney(
+                          Number(getExtraCosts(printOrder).bankFee || 0),
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border p-4">
+                      <p className="text-xs uppercase text-zinc-500">Other Fee</p>
+                      <p className="mt-1 text-lg font-black">
+                        {formatMoney(
+                          Number(getExtraCosts(printOrder).otherFee || 0),
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-black p-4 text-white md:col-span-2">
+                      <p className="text-xs uppercase text-zinc-300">
+                        Grand Total
+                      </p>
+                      <p className="mt-1 text-2xl font-black text-amber-300">
+                        {formatMoney(getGrandTotal(printOrder))}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {(printOrder.payments || []).length > 0 && (
+                  <div className="avoid-break mb-8">
+                    <h3 className="mb-3 text-xl font-black">Payments</h3>
+
+                    <table className="w-full border-collapse overflow-hidden rounded-2xl text-sm">
+                      <thead>
+                        <tr className="bg-zinc-100 text-left text-xs uppercase text-zinc-500">
+                          <th className="p-3">Date</th>
+                          <th className="p-3">Method</th>
+                          <th className="p-3">Note</th>
+                          <th className="p-3 text-right">Amount</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {printOrder.payments?.map((payment) => (
+                          <tr key={payment.id} className="border-b">
+                            <td className="p-3">{payment.date}</td>
+                            <td className="p-3">{payment.method || "-"}</td>
+                            <td className="p-3">{payment.note || "-"}</td>
+                            <td className="p-3 text-right font-black">
+                              {formatMoney(Number(payment.amount || 0))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div>
+                  <h3 className="mb-3 text-xl font-black">Items</h3>
+
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-black text-left text-xs uppercase text-white">
+                        <th className="p-3">Product</th>
+                        <th className="p-3">Model</th>
+                        <th className="p-3">SKU</th>
+                        <th className="p-3">Size</th>
+                        <th className="p-3 text-right">Qty</th>
+                        <th className="p-3 text-right">Unit Cost</th>
+                        <th className="p-3 text-right">Selling Price</th>
+                        <th className="p-3 text-right">Total</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {printOrder.items.map((item) => (
+                        <tr key={item.id} className="border-b">
+                          <td className="p-3 font-bold">{item.productName}</td>
+                          <td className="p-3">{item.modelNo}</td>
+                          <td className="p-3">{item.sku || "-"}</td>
+                          <td className="p-3">{item.size}</td>
+                          <td className="p-3 text-right font-black">
+                            {item.quantity}
+                          </td>
+                          <td className="p-3 text-right">
+                            {formatMoney(Number(item.unitCost || 0))}
+                          </td>
+                          <td className="p-3 text-right">
+                            {formatMoney(Number(item.sellingPrice || item.unitCost || 0))}
+                          </td>
+                          <td className="p-3 text-right font-black">
+                            {formatMoney(
+                              Number(item.quantity || 0) *
+                                Number(item.unitCost || 0),
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="avoid-break mt-8 border-t pt-5 text-xs text-zinc-500">
+                  <p>
+                    Generated by Halfi Inventory System · {new Date().toLocaleString()}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
