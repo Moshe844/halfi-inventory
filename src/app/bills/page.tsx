@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AlertModal from "../components/AlertModal";
+import ConfirmModal from "../components/ConfirmModal";
 
 type POItem = {
   id: string;
@@ -92,11 +94,32 @@ export default function BillsPage() {
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>("Bank Transfer");
   const [paymentNote, setPaymentNote] = useState("");
+  const [alertOpen, setAlertOpen] = useState(false);
+
+  const [alertMessage, setAlertMessage] = useState("");
+
+  const [alertType, setAlertType] = useState<
+    "success" | "error" | "warning" | "info"
+  >("info");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+
+  const [confirmMessage, setConfirmMessage] = useState("");
+
+  function showAlert(
+    message: string,
+    type: "success" | "error" | "warning" | "info" = "info"
+  ) {
+    setAlertMessage(message);
+    setAlertType(type);
+    setAlertOpen(true);
+  }
 
   useEffect(() => {
     function loadBills() {
-      const savedBills = localStorage.getItem("halfi_bills");
-      const parsedBills = savedBills ? JSON.parse(savedBills) : [];
+      const savedBills = localStorage.getItem("halfi_bills") ?? "[]";
+      const parsedBills = JSON.parse(savedBills);
 
       setBills(parsedBills);
 
@@ -164,8 +187,8 @@ export default function BillsPage() {
     amountPaid: number,
     newPayments: any[]
   ) {
-    const savedPOs = localStorage.getItem("halfi_purchase_orders");
-    const pos = savedPOs ? JSON.parse(savedPOs) : [];
+    const savedPOs = localStorage.getItem("halfi_purchase_orders") ?? "[]";
+    const pos = JSON.parse(savedPOs);
 
     const updatedPOs = pos.map((po: any) =>
       po.id === poId
@@ -192,7 +215,7 @@ export default function BillsPage() {
     const amount = Number(paymentAmount || 0);
 
     if (amount <= 0) {
-      alert("Enter a valid payment amount.");
+      showAlert("Enter a valid payment amount.", "error");
       return;
     }
 
@@ -214,8 +237,8 @@ export default function BillsPage() {
       status: newStatus,
     };
 
-    const savedPayments = localStorage.getItem("halfi_payments_made");
-    const payments = savedPayments ? JSON.parse(savedPayments) : [];
+    const savedPayments = localStorage.getItem("halfi_payments_made") ?? "[]";
+    const payments = JSON.parse(savedPayments);
 
     localStorage.setItem(
       "halfi_payments_made",
@@ -249,13 +272,13 @@ export default function BillsPage() {
     setPaymentNote("");
     setSelectedBill(null);
 
-    alert("Payment saved.");
+    showAlert("Payment saved.", "success");
   }
 
 
   function printBillDocument(bill: Bill) {
-    const savedVendors = localStorage.getItem("halfi_vendors");
-    const vendors = savedVendors ? JSON.parse(savedVendors) : [];
+    const savedVendors = localStorage.getItem("halfi_vendors") ?? "[]";
+    const vendors = JSON.parse(savedVendors);
     const vendor = vendors.find((v: any) => v.name === bill.vendor);
     const costs = getExtraCosts(bill);
     const subtotal = getItemSubtotal(bill.items);
@@ -623,7 +646,7 @@ export default function BillsPage() {
     const printWindow = window.open("", "_blank");
 
     if (!printWindow) {
-      alert("Popup blocked. Please allow popups to print.");
+      showAlert("Popup blocked. Please allow popups to print.", "error");
       return;
     }
 
@@ -632,55 +655,73 @@ export default function BillsPage() {
   }
 
 
- function deleteBill(bill: Bill) {
-  const savedPayments = localStorage.getItem("halfi_payments_made");
-  const payments = savedPayments ? JSON.parse(savedPayments) : [];
 
-  const relatedPayments = payments.filter(
-    (payment: any) => payment.billId === bill.id
-  );
+  function deleteBill(bill: Bill) {
+    const savedPayments = localStorage.getItem("halfi_payments_made") ?? "[]";
+    const payments = JSON.parse(savedPayments);
 
-  // BLOCK DELETE IF PAYMENTS EXIST
-  if (relatedPayments.length > 0) {
-    alert(
-      "Cannot delete this bill until all related payments are deleted first."
+    const relatedPayments = payments.filter(
+      (payment: any) => payment.billId === bill.id
     );
-    return;
+
+    if (relatedPayments.length > 0) {
+      showAlert(
+        "Cannot delete this bill until all related payments are deleted first.",
+        "info"
+      );
+      return;
+    }
+
+    setConfirmMessage(
+      "Delete this bill? The related purchase order will be reset back to Issued."
+    );
+
+    setConfirmAction(() => () => {
+      actuallyDeleteBill(bill);
+    });
+
+    setConfirmOpen(true);
   }
 
-  const confirmDelete = window.confirm(
-    "Delete this bill? The related purchase order will be reset back to Issued."
-  );
+  function actuallyDeleteBill(bill: Bill) {
+    const updatedBills = bills.filter((savedBill) => savedBill.id !== bill.id);
+    saveBills(updatedBills);
 
-  if (!confirmDelete) return;
+    const savedPOs = localStorage.getItem("halfi_purchase_orders") ?? "[]";
+    const pos = JSON.parse(savedPOs);
 
-  const updatedBills = bills.filter((b) => b.id !== bill.id);
+    const updatedPOs = pos.map((po: any) =>
+      po.id === bill.poId
+        ? {
+            ...po,
+            status: "Draft",
+            amountPaid: 0,
+            payments: [],
+          }
+        : po
+    );
 
-  saveBills(updatedBills);
+    localStorage.setItem("halfi_purchase_orders", JSON.stringify(updatedPOs));
 
-  const savedPOs = localStorage.getItem("halfi_purchase_orders");
-  const pos = savedPOs ? JSON.parse(savedPOs) : [];
+    const savedPayments = localStorage.getItem("halfi_payments_made") ?? "[]";
+    const payments = JSON.parse(savedPayments);
 
-  const updatedPOs = pos.map((po: any) =>
-    po.id === bill.poId
-      ? {
-          ...po,
-          status: "Issued",
-          amountPaid: 0,
-          payments: [],
-        }
-      : po
-  );
+    const updatedPayments = payments.filter(
+      (payment: any) => payment.billId !== bill.id
+    );
 
-  localStorage.setItem(
-    "halfi_purchase_orders",
-    JSON.stringify(updatedPOs)
-  );
+    localStorage.setItem(
+      "halfi_payments_made",
+      JSON.stringify(updatedPayments)
+    );
 
-  setSelectedBill(null);
+    setSelectedBill(null);
 
-  alert("Bill deleted.");
-}
+    showAlert(
+      "Bill deleted. Related purchase order was reset back to Draft.",
+      "warning"
+    );
+  }
 
   const totalBills = bills.length;
   const totalBillValue = bills.reduce(
@@ -786,6 +827,7 @@ export default function BillsPage() {
 
                   <button
                     type="button"
+                    data-readonly-allow="true"
                     onClick={() => openPurchaseOrder(selectedBill.poId)}
                     className="text-zinc-500 underline hover:text-black"
                   >
@@ -795,6 +837,7 @@ export default function BillsPage() {
 
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => setSelectedBill(null)}
                   className="rounded-xl bg-zinc-100 px-4 py-2 font-bold"
                 >
@@ -900,6 +943,7 @@ export default function BillsPage() {
               <div className="mb-6 flex flex-wrap gap-3">
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => openPurchaseOrder(selectedBill.poId)}
                   className="rounded-xl bg-amber-400 px-5 py-3 font-bold text-black"
                 >
@@ -908,6 +952,7 @@ export default function BillsPage() {
 
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => printBillDocument(selectedBill)}
                   className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
                 >
@@ -958,6 +1003,31 @@ export default function BillsPage() {
           </div>
         )}
       </div>
+      <AlertModal
+        open={alertOpen}
+        message={alertMessage}
+        type={alertType}
+        onClose={() => setAlertOpen(false)}
+      />
+
+      <ConfirmModal
+        open={confirmOpen}
+        message={confirmMessage}
+        danger
+        confirmText="Delete"
+        onCancel={() => {
+          setConfirmOpen(false);
+          setConfirmAction(null);
+        }}
+        onConfirm={() => {
+          if (confirmAction) {
+            confirmAction();
+          }
+
+          setConfirmOpen(false);
+          setConfirmAction(null);
+        }}
+      />
     </main>
   );
 }

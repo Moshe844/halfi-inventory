@@ -143,6 +143,7 @@ export default function Sidebar() {
             <div key={section.title} className="select-none">
               {/* Section Header */}
               <button
+                data-readonly-allow="true"
                 onClick={() => toggleSection(section.title)}
                 className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-300 hover:bg-zinc-900"
               >
@@ -192,6 +193,7 @@ export default function Sidebar() {
 
 <button
   type="button"
+  data-readonly-allow="true"  
   onClick={() => {
     localStorage.removeItem("halfi_logged_in");
     window.location.href = "/login";

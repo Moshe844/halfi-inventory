@@ -1,20 +1,69 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Mail, PackageCheck } from "lucide-react";
+
+type UserRole = "Admin" | "Read / Write" | "Read Only";
+
+type AppUser = {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
+  active: boolean;
+};
+
+const ADMIN_EMAIL = "arye6700@gmail.com";
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function ensureAdminUser() {
+  const saved = localStorage.getItem("halfi_users");
+  const users: AppUser[] = saved ? JSON.parse(saved) : [];
+
+  const hasAdmin = users.some(
+    (user) => normalizeEmail(user.email) === ADMIN_EMAIL
+  );
+
+  if (!hasAdmin) {
+    const updatedUsers: AppUser[] = [
+      {
+        id: `USER-${Date.now()}`,
+        name: "Admin",
+        email: ADMIN_EMAIL,
+        password: "1234",
+        role: "Admin",
+        active: true,
+      },
+      ...users,
+    ];
+
+    localStorage.setItem("halfi_users", JSON.stringify(updatedUsers));
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState("admin@halfi.com");
+  const [email, setEmail] = useState(ADMIN_EMAIL);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    ensureAdminUser();
+  }, []);
+
   function login() {
     setError("");
+    ensureAdminUser();
 
-    if (!email.trim()) {
+    const cleanEmail = normalizeEmail(email);
+
+    if (!cleanEmail) {
       setError("Enter your email.");
       return;
     }
@@ -24,13 +73,25 @@ export default function LoginPage() {
       return;
     }
 
-    if (password !== "1234") {
-      setError("Wrong password. Try 1234 for now.");
+    const users: AppUser[] = JSON.parse(localStorage.getItem("halfi_users") || "[]");
+
+    const user = users.find(
+      (savedUser) => normalizeEmail(savedUser.email) === cleanEmail
+    );
+
+    if (!user || user.password !== password) {
+      setError("Wrong email or password.");
+      return;
+    }
+
+    if (!user.active) {
+      setError("This user is disabled.");
       return;
     }
 
     localStorage.setItem("halfi_logged_in", "true");
-    localStorage.setItem("halfi_user_email", email);
+    localStorage.setItem("halfi_user_email", user.email);
+    localStorage.setItem("halfi_user_role", user.role);
 
     router.push("/");
   }
@@ -72,8 +133,8 @@ export default function LoginPage() {
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-              <p className="text-2xl font-black text-amber-300">POs</p>
-              <p className="mt-1 text-sm text-zinc-400">Purchasing</p>
+              <p className="text-2xl font-black text-amber-300">Users</p>
+              <p className="mt-1 text-sm text-zinc-400">Permissions</p>
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
@@ -113,7 +174,7 @@ export default function LoginPage() {
                     <input
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@halfi.com"
+                      placeholder={ADMIN_EMAIL}
                       className="w-full bg-transparent outline-none"
                     />
                   </div>
@@ -151,13 +212,15 @@ export default function LoginPage() {
                 </button>
 
                 <div className="rounded-2xl bg-zinc-100 p-4 text-sm text-zinc-600">
-                  Temporary local password: <b>1234</b>
+                  Main admin: <b>{ADMIN_EMAIL}</b>
+                  <br />
+                  Default password: <b>1234</b>
                 </div>
               </div>
             </div>
 
             <p className="mt-6 text-center text-sm text-zinc-500">
-              Local demo login using browser storage.
+              Local browser login. For live use, move users to a database.
             </p>
           </div>
         </section>

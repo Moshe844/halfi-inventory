@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AlertModal from "../components/AlertModal";
+import ConfirmModal from "../components/ConfirmModal";
 
 type Payment = {
   id: string;
@@ -19,6 +21,25 @@ export default function PaymentsMadePage() {
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [alertType, setAlertType] = useState<
+    "success" | "error" | "warning" | "info"
+  >("info");
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState("");
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+
+  function showAlert(
+    message: string,
+    type: "success" | "error" | "warning" | "info" = "info"
+  ) {
+    setAlertMessage(message);
+    setAlertType(type);
+    setAlertOpen(true);
+  }
 
   useEffect(() => {
     function loadPayments() {
@@ -44,8 +65,8 @@ export default function PaymentsMadePage() {
       return payment.amountOwed;
     }
 
-    const savedBills = localStorage.getItem("halfi_bills");
-    const bills = savedBills ? JSON.parse(savedBills) : [];
+    const savedBills = localStorage.getItem("halfi_bills") ?? "[]";
+    const bills = JSON.parse(savedBills);
     const bill = bills.find((b: any) => b.id === payment.billId);
 
     if (!bill) return 0;
@@ -78,12 +99,18 @@ export default function PaymentsMadePage() {
   }
 
   function deletePayment(payment: Payment) {
-    const confirmDelete = window.confirm(
+    setConfirmMessage(
       "Delete this payment? This will update the related bill and purchase order balance/status."
     );
 
-    if (!confirmDelete) return;
+    setConfirmAction(() => () => {
+      actuallyDeletePayment(payment);
+    });
 
+    setConfirmOpen(true);
+  }
+
+  function actuallyDeletePayment(payment: Payment) {
     const updatedPayments = payments.filter((p) => p.id !== payment.id);
 
     localStorage.setItem(
@@ -93,8 +120,8 @@ export default function PaymentsMadePage() {
 
     setPayments(updatedPayments);
 
-    const savedBills = localStorage.getItem("halfi_bills");
-    const bills = savedBills ? JSON.parse(savedBills) : [];
+    const savedBills = localStorage.getItem("halfi_bills") ?? "[]";
+    const bills = JSON.parse(savedBills);
 
     const updatedBills = bills.map((bill: any) => {
       if (bill.id !== payment.billId) return bill;
@@ -118,8 +145,8 @@ export default function PaymentsMadePage() {
 
     localStorage.setItem("halfi_bills", JSON.stringify(updatedBills));
 
-    const savedPOs = localStorage.getItem("halfi_purchase_orders");
-    const pos = savedPOs ? JSON.parse(savedPOs) : [];
+    const savedPOs = localStorage.getItem("halfi_purchase_orders") ?? "[]";
+    const pos = JSON.parse(savedPOs);
 
     const updatedPOs = pos.map((po: any) => {
       if (po.id !== payment.poId) return po;
@@ -156,7 +183,7 @@ export default function PaymentsMadePage() {
 
     setSelectedPayment(null);
 
-    alert("Payment deleted. Bill and PO updated.");
+    showAlert("Payment deleted. Bill and PO updated.", "warning");
   }
 
   const totalPaid = payments.reduce(
@@ -278,6 +305,7 @@ export default function PaymentsMadePage() {
 
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => setSelectedPayment(null)}
                   className="rounded-xl bg-zinc-100 px-4 py-2 font-bold"
                 >
@@ -332,6 +360,7 @@ export default function PaymentsMadePage() {
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => goToPO(selectedPayment)}
                   className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
                 >
@@ -340,6 +369,7 @@ export default function PaymentsMadePage() {
 
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => goToBill(selectedPayment)}
                   className="rounded-xl bg-amber-400 px-5 py-3 font-bold text-black"
                 >
@@ -356,6 +386,7 @@ export default function PaymentsMadePage() {
 
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => setSelectedPayment(null)}
                   className="rounded-xl border px-5 py-3 font-bold"
                 >
@@ -365,6 +396,32 @@ export default function PaymentsMadePage() {
             </div>
           </div>
         )}
+        <AlertModal
+          open={alertOpen}
+          message={alertMessage}
+          type={alertType}
+          onClose={() => setAlertOpen(false)}
+        />
+
+        <ConfirmModal
+          open={confirmOpen}
+          message={confirmMessage}
+          danger
+          confirmText="Delete"
+          onCancel={() => {
+            setConfirmOpen(false);
+            setConfirmAction(null);
+          }}
+          onConfirm={() => {
+            if (confirmAction) {
+              confirmAction();
+            }
+
+            setConfirmOpen(false);
+            setConfirmAction(null);
+          }}
+        />
+
       </div>
     </main>
   );

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AlertModal from "../components/AlertModal";
+import ConfirmModal from "../components/ConfirmModal";
 
 type POItem = {
   id: string;
@@ -164,6 +166,25 @@ export default function PurchaseOrdersPage() {
   const [loading, setLoading] = useState(false);
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
 
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [alertType, setAlertType] = useState<
+    "success" | "error" | "warning" | "info"
+  >("info");
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState("");
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+
+  function showAlert(
+    message: string,
+    type: "success" | "error" | "warning" | "info" = "info",
+  ) {
+    setAlertMessage(message);
+    setAlertType(type);
+    setAlertOpen(true);
+  }
+
   useEffect(() => {
     function loadOrders() {
       const saved = localStorage.getItem("halfi_purchase_orders");
@@ -238,7 +259,7 @@ export default function PurchaseOrdersPage() {
     setLoading(false);
 
     if (!res.ok) {
-      alert(data.error || "Could not import PDF.");
+      showAlert(data.error || "Could not import PDF.", "error");
       return;
     }
 
@@ -301,7 +322,7 @@ export default function PurchaseOrdersPage() {
 
   function savePurchaseOrder() {
     if (items.length === 0) {
-      alert("Add at least one item before saving.");
+      showAlert("Add at least one item before saving.", "error");
       return;
     }
 
@@ -326,7 +347,7 @@ export default function PurchaseOrdersPage() {
     setExtraCosts(defaultExtraCosts);
     setMode("menu");
 
-    alert("Purchase order saved as Draft.");
+    showAlert("Purchase order saved as Draft.", "success");
   }
 
   function buildPOMessage(order: PurchaseOrder) {
@@ -389,8 +410,8 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
   }
 
   function importToInventory(order: PurchaseOrder) {
-    const savedInventory = localStorage.getItem("halfi_items");
-    const currentInventory = savedInventory ? JSON.parse(savedInventory) : [];
+    const savedInventory = localStorage.getItem("halfi_items") ?? "[]";
+    const currentInventory = JSON.parse(savedInventory);
 
     const newInventoryItems = order.items.map((item) => ({
       id: `${order.id}-${item.productName}-${item.modelNo}-${item.size}`,
@@ -441,8 +462,8 @@ Grand Total: $${getGrandTotal(order).toLocaleString()}`;
     });
 
     localStorage.setItem("halfi_items", JSON.stringify(mergedInventory));
-    const savedReceived = localStorage.getItem("halfi_receive_inventory");
-const receivedRecords = savedReceived ? JSON.parse(savedReceived) : [];
+    const savedReceived = localStorage.getItem("halfi_receive_inventory") ?? "[]";
+const receivedRecords = JSON.parse(savedReceived);
 
 const alreadyReceived = receivedRecords.some(
   (record: any) => record.poId === order.id
@@ -475,18 +496,24 @@ if (!alreadyReceived) {
     saveOrders(updatedOrders);
     setSelectedOrder(null);
 
-    alert("Purchase order received and added to inventory.");
+    showAlert("Purchase order received and added to inventory.", "success");
   }
 
   function deletePurchaseOrder(order: PurchaseOrder) {
-    const confirmDelete = window.confirm(
-      "Are you sure? This deletes the PO, related bill, related payments, and removes matching items from inventory.",
+    setConfirmMessage(
+      "Are you sure? This deletes the PO, related bill, related payments, received record, and removes matching items from inventory.",
     );
 
-    if (!confirmDelete) return;
+    setConfirmAction(() => () => {
+      actuallyDeletePurchaseOrder(order);
+    });
 
-    const savedInventory = localStorage.getItem("halfi_items");
-    const currentInventory = savedInventory ? JSON.parse(savedInventory) : [];
+    setConfirmOpen(true);
+  }
+
+  function actuallyDeletePurchaseOrder(order: PurchaseOrder) {
+    const savedInventory = localStorage.getItem("halfi_items") ?? "[]";
+    const currentInventory = JSON.parse(savedInventory);
 
     const updatedInventory = currentInventory.filter((inventoryItem: any) => {
       return !order.items.some(
@@ -498,18 +525,17 @@ if (!alreadyReceived) {
     });
 
     localStorage.setItem("halfi_items", JSON.stringify(updatedInventory));
-    
 
     const updatedOrders = orders.filter((po) => po.id !== order.id);
     saveOrders(updatedOrders);
 
-    const savedBills = localStorage.getItem("halfi_bills");
-    const bills = savedBills ? JSON.parse(savedBills) : [];
+    const savedBills = localStorage.getItem("halfi_bills") ?? "[]";
+    const bills = JSON.parse(savedBills);
     const updatedBills = bills.filter((bill: any) => bill.poId !== order.id);
     localStorage.setItem("halfi_bills", JSON.stringify(updatedBills));
 
-    const savedPayments = localStorage.getItem("halfi_payments_made");
-    const payments = savedPayments ? JSON.parse(savedPayments) : [];
+    const savedPayments = localStorage.getItem("halfi_payments_made") ?? "[]";
+    const payments = JSON.parse(savedPayments);
     const updatedPayments = payments.filter(
       (payment: any) => payment.poId !== order.id,
     );
@@ -518,9 +544,22 @@ if (!alreadyReceived) {
       JSON.stringify(updatedPayments),
     );
 
+    const savedReceived = localStorage.getItem("halfi_receive_inventory") ?? "[]";
+    const received = JSON.parse(savedReceived);
+    const updatedReceived = received.filter(
+      (record: any) => record.poId !== order.id,
+    );
+    localStorage.setItem(
+      "halfi_receive_inventory",
+      JSON.stringify(updatedReceived),
+    );
+
     if (selectedOrder?.id === order.id) setSelectedOrder(null);
 
-    alert("PO, related bill, related payments, and inventory items deleted.");
+    showAlert(
+      "PO, related bill, related payments, received record, and inventory items deleted.",
+      "warning",
+    );
   }
 
   const draftOrders = orders.filter((o) => o.status === "Draft").length;
@@ -1090,6 +1129,7 @@ if (!alreadyReceived) {
 
                 <button
                   type="button"
+                  data-readonly-allow="true"
                   onClick={() => setSelectedOrder(null)}
                   className="rounded-xl bg-zinc-100 px-4 py-2 font-bold"
                 >
@@ -1256,13 +1296,14 @@ if (!alreadyReceived) {
                   }
                   onClick={() => {
                     if (selectedOrder.status === "Received") {
-                      alert("Inventory already received for this PO.");
+                      showAlert("Inventory already received for this PO.", "warning");
                       return;
                     }
 
                     if (getBalance(selectedOrder) > 0) {
-                      alert(
+                      showAlert(
                         "PO must be fully paid before receiving inventory.",
+                        "error",
                       );
                       return;
                     }
@@ -1412,6 +1453,7 @@ if (!alreadyReceived) {
                 <div className="flex gap-3">
                   <button
                     type="button"
+                    data-readonly-allow="true"
                     onClick={() => window.print()}
                     className="rounded-xl bg-black px-5 py-3 font-bold text-amber-300"
                   >
@@ -1420,6 +1462,7 @@ if (!alreadyReceived) {
 
                   <button
                     type="button"
+                    data-readonly-allow="true"
                     onClick={() => setPrintOrder(null)}
                     className="rounded-xl bg-zinc-100 px-5 py-3 font-bold"
                   >
@@ -1683,6 +1726,32 @@ if (!alreadyReceived) {
             </div>
           </div>
         )}
+
+        <AlertModal
+          open={alertOpen}
+          message={alertMessage}
+          type={alertType}
+          onClose={() => setAlertOpen(false)}
+        />
+
+        <ConfirmModal
+          open={confirmOpen}
+          message={confirmMessage}
+          danger
+          confirmText="Delete"
+          onCancel={() => {
+            setConfirmOpen(false);
+            setConfirmAction(null);
+          }}
+          onConfirm={() => {
+            if (confirmAction) {
+              confirmAction();
+            }
+
+            setConfirmOpen(false);
+            setConfirmAction(null);
+          }}
+        />
 
       </div>
     </main>
